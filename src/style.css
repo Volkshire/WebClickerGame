@@ -1,0 +1,2109 @@
+:root {
+  --bg: #131418;
+  --panel: #1c1e22;
+  --panel-inset: #16181c;
+  --border: #2a2c31;
+  --text: #e9eaec;
+  --muted: #909398;
+  --accent: #7e8da0;
+  /* Accent as raw RGB channels so tints can use `rgb(var(--accent-rgb) / a)` */
+  --accent-rgb: 126 141 160;
+  --ok: #3ecf8e;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 1rem;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  max-width: 34rem;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 0.4rem;
+  width: min(100%, 30rem);
+}
+
+.tab-button {
+  flex: 1 1 0;
+  padding: 0.55rem 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tab-button:hover:not(:disabled) {
+  filter: brightness(1.25);
+}
+
+.tab-button[aria-selected='true'] {
+  color: #fff;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.tab-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tab-button.has-notification {
+  animation: tab-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes tab-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 4px 1px rgb(62 207 142 / 15%);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px rgb(62 207 142 / 45%);
+  }
+}
+
+button:focus-visible,
+.item-row:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.screen {
+  text-align: center;
+  width: min(100%, 30rem);
+  padding: clamp(1.25rem, 4vw, 2.25rem);
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgb(0 0 0 / 35%);
+}
+
+.screen-header {
+  margin-bottom: 1.5rem;
+}
+
+.screen-title {
+  font-size: 1.25rem;
+  margin-bottom: 0.15rem;
+}
+
+.screen-subtitle {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.diagnostics:not([hidden]) {
+  /* Debug popout: a small floating window pinned near the 🐞 toggle,
+     independent of the header flow (opening it no longer shifts layout). */
+  position: fixed;
+  top: 0.75rem;
+  right: 1rem;
+  z-index: 55; /* above panes, below modals (60) and alert banners (100) */
+  width: 320px;
+  max-width: calc(100vw - 2rem);
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 0.85rem 0.9rem 0.95rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.diagnostics-title {
+  margin: 0 0 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.status-list {
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.status-item::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 0.6em;
+  background: var(--muted);
+  vertical-align: middle;
+}
+
+.status-item.is-ok {
+  color: var(--text);
+}
+
+.status-item.is-ok::before {
+  background: var(--ok);
+}
+
+.status-detail {
+  margin-top: 0.75rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.diagnostics-toggle {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.6;
+  z-index: 41;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.diagnostics-toggle:hover {
+  opacity: 1;
+  filter: brightness(1.2);
+}
+
+.clicker {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: center;
+}
+
+.souls-counter {
+  font-size: 2.4rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.souls-counter span {
+  display: inline-block;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-subline {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.stats-subline span {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.idle-subline {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+  font-style: italic;
+}
+
+.idle-target-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.idle-target-power {
+  margin-top: 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.idle-target-terrain,
+.idle-target-loot {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.offline-toast {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: #26282e;
+  border: 1px solid #4a4e57;
+  border-radius: 999px;
+}
+
+.harvest-anchor {
+  position: relative;
+}
+
+/* Ambient soul wisps drifting up around the button (pure CSS, understated). */
+.harvest-anchor::before,
+.harvest-anchor::after {
+  content: '';
+  position: absolute;
+  top: 58%;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(var(--accent-rgb) / 60%) 0%, transparent 72%);
+  filter: blur(1px);
+  opacity: 0;
+  pointer-events: none;
+  animation: wisp-drift 7.5s ease-in-out infinite;
+}
+
+.harvest-anchor::after {
+  animation-duration: 10s;
+  animation-delay: -5s;
+}
+
+@keyframes wisp-drift {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -30%) scale(0.55);
+  }
+
+  30% {
+    opacity: 0.42;
+  }
+
+  55% {
+    transform: translate(-170%, -150%) scale(1);
+    opacity: 0.28;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(80%, -230%) scale(0.45);
+  }
+}
+
+.harvest-button {
+  position: relative;
+  z-index: 1;
+  padding: 1.05rem 2.9rem;
+  font-size: 1.22rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--text);
+  background: linear-gradient(180deg, #34383f, #26282e);
+  border: 1px solid rgb(var(--accent-rgb) / 45%);
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 1px rgb(var(--accent-rgb) / 10%),
+    0 6px 24px rgb(var(--accent-rgb) / 16%),
+    inset 0 1px 0 rgb(255 255 255 / 6%);
+  transition: transform 0.06s ease, filter 0.15s ease;
+  animation: harvest-breathe 3.4s ease-in-out infinite;
+
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* Small sigil ahead of the label; pure typography, no assets. */
+.harvest-button::before {
+  content: '✦';
+  margin-right: 0.6em;
+  font-size: 0.92em;
+  color: rgb(var(--accent-rgb) / 90%);
+}
+
+@keyframes harvest-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgb(var(--accent-rgb) / 10%),
+      0 4px 18px rgb(var(--accent-rgb) / 13%),
+      inset 0 1px 0 rgb(255 255 255 / 5%);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 1px rgb(var(--accent-rgb) / 24%),
+      0 8px 32px rgb(var(--accent-rgb) / 32%),
+      inset 0 1px 0 rgb(255 255 255 / 7%);
+  }
+}
+
+.harvest-button:hover {
+  filter: brightness(1.18);
+}
+
+.harvest-button:active {
+  transform: scale(0.96);
+}
+
+.harvest-burst {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--accent-rgb) / 70%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: harvest-burst 0.45s ease-out forwards;
+}
+
+@keyframes harvest-burst {
+  from {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(0.6);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(4.4);
+    border-width: 1px;
+  }
+}
+
+.float-gain {
+  position: absolute;
+  top: -0.25rem;
+  transform: translate(-50%, 0);
+  color: var(--ok);
+  font-weight: 700;
+  font-size: 1.04rem;
+  text-shadow: 0 0 12px rgb(62 207 142 / 40%);
+  pointer-events: none;
+  white-space: nowrap;
+  animation: float-up 0.75s ease-out forwards;
+}
+
+@keyframes float-up {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--drift, 0px)), -48px);
+  }
+}
+
+.shop-section {
+  margin-top: 1.75rem;
+}
+
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.6rem;
+}
+
+.item-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+  transition: border-color 0.15s ease;
+}
+
+.item-row.is-affordable {
+  border-color: rgb(var(--accent-rgb) / 50%);
+}
+
+.target-row.is-current {
+  border-color: rgb(var(--accent-rgb) / 85%);
+  background: rgb(var(--accent-rgb) / 14%);
+  box-shadow: 0 0 0 1px rgb(var(--accent-rgb) / 45%);
+}
+
+.target-row.is-current .item-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.target-row.is-cleared {
+  opacity: 0.75;
+}
+
+.target-row.is-locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.item-row.is-locked {
+  opacity: 0.55;
+}
+
+.item-row.is-locked .item-name {
+  color: var(--muted);
+}
+
+.item-row.is-locked .buy-button {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.item-row.is-flash {
+  animation: row-flash 0.5s ease-out;
+}
+
+@keyframes row-flash {
+  from {
+    background: rgb(var(--accent-rgb) / 28%);
+  }
+
+  to {
+    background: var(--panel-inset);
+  }
+}
+
+.item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.item-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.item-chip {
+  font-style: normal;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: #27292f;
+  padding: 0.06rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.item-effect {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.item-flavor {
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.buy-button {
+  flex-shrink: 0;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  background: #2a2d34;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, filter 0.15s ease;
+
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.item-row.is-affordable .buy-button {
+  background: var(--accent);
+}
+
+.buy-button:hover:enabled {
+  filter: brightness(1.15);
+}
+
+.buy-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+/* QOL: post-battle shortcuts from the result view. */
+.post-battle-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+
+.return-button {
+  flex: 1 1 auto;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+  background: #2a2d34;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, filter 0.15s ease;
+
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.return-button:hover {
+  filter: brightness(1.2);
+}
+
+/* Continue reads as the primary post-battle action (accent, unlike the
+   muted Return beside it); disabled while troops are gone or the campaign
+   is complete. */
+.continue-button {
+  flex: 1 1 auto;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #17181c;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, filter 0.15s ease;
+
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.continue-button:hover:enabled {
+  filter: brightness(1.12);
+}
+
+.continue-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+/* QOL toggle below ATTACK: jump to the World pane when battle starts. */
+.world-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.world-switch input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.item-teaser {
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.unit-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.amount-row {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 0.2rem;
+}
+
+.amount-button {
+  padding: 0.12rem 0.42rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.amount-button:hover:enabled {
+  color: var(--text);
+}
+
+.amount-button.is-active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.amount-button.is-unpayable:not(.is-active) {
+  opacity: 0.45;
+}
+
+.amount-button:disabled {
+  cursor: not-allowed;
+}
+
+.cost-part.is-ok {
+  color: var(--ok);
+}
+
+.cost-part.is-short {
+  color: #ff6b6b;
+}
+
+/* Non-color affordability cue: red/green alone is invisible to color-blind
+   players, so short costs also carry a ✕ glyph (ok ones a ✓). */
+.cost-part.is-ok::before {
+  content: '✓ ';
+}
+
+.cost-part.is-short::before {
+  content: '✕ ';
+}
+
+/* Maxed/BUILT/RESEARCHED rows: distinct "done" treatment so they never read
+   as merely unaffordable (mirrors the Prestige Shop's owned tint). */
+.building-row.is-owned {
+  border-color: rgb(62 207 142 / 40%);
+}
+
+/* Visible lock reason inside Prestige Shop rows (tooltips don't exist on touch). */
+.shop-locked {
+  margin-top: 0.15rem;
+  font-size: 0.74rem;
+  color: #d8b4fe;
+}
+
+/* Soul-counter gain pulse (class churn existed; the visual was missing). */
+.souls-counter span.is-gained {
+  color: #fff;
+  text-shadow: 0 0 16px rgb(var(--accent-rgb) / 75%);
+}
+
+.building-cost {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+  font-size: 0.76rem;
+}
+
+.item-locked {
+  border-style: dashed;
+  opacity: 0.75;
+}
+
+.combat-target {
+  margin-bottom: 1.25rem;
+  text-align: left;
+}
+
+.combat-target .section-title {
+  margin-bottom: 0.35rem;
+}
+
+.current-target {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  text-align: left;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.target-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.target-enemy-power {
+  margin-top: 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.target-terrain,
+.target-loot {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.target-description {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.target-army {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.target-army-item::before {
+  content: '☠ ';
+  color: var(--muted);
+}
+
+.deploy-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.deploy-button {
+  padding: 0.4rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.deploy-button:hover {
+  color: var(--text);
+}
+
+.deploy-button.is-active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.attack-button {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.8rem 2rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  background: linear-gradient(180deg, #8c3b3b, #6e2e2e);
+  border: 1px solid #a44a4a;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.05s ease, filter 0.15s ease, opacity 0.15s ease;
+
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.attack-button:hover:enabled {
+  filter: brightness(1.15);
+}
+
+.attack-button:active:enabled {
+  transform: scale(0.98);
+}
+
+.attack-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+/* Advance-to-next-Age action: deliberately loud — gold with a slow pulse so
+   it reads as a milestone moment, never as another grey button. Replaces
+   ATTACK (Legion pane) and Continue Attack (result view) while a conquered
+   Age waits for the player to move on. */
+.advance-button {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.8rem 2rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #241a02;
+  background: linear-gradient(180deg, #e8c15a, #b8892f);
+  border: 1px solid #f3d98a;
+  border-radius: 10px;
+  cursor: pointer;
+  animation: advance-pulse 1.6s ease-in-out infinite;
+  transition: transform 0.05s ease, filter 0.15s ease;
+
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.advance-button:hover:enabled {
+  filter: brightness(1.12);
+}
+
+.advance-button:active:enabled {
+  transform: scale(0.98);
+}
+
+@keyframes advance-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(232 193 90 / 40%);
+  }
+  50% {
+    box-shadow: 0 0 16px 3px rgb(232 193 90 / 55%);
+  }
+}
+
+.post-battle-actions .advance-button {
+  flex: 1 1 auto;
+  width: auto;
+  margin-top: 0;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+/* Conquered-Age note in the World tab's right panel. */
+.era-conquered {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  text-align: left;
+  background: var(--panel-inset);
+  border: 1px solid rgb(232 193 90 / 45%);
+  border-radius: 10px;
+}
+
+.ec-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #e8c15a;
+}
+
+.ec-copy {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.battle-bar {
+  height: 0.75rem;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.battle-bar-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
+  transition: width 0.2s linear;
+}
+
+.battle-bar-fill.is-attacker {
+  background: linear-gradient(90deg, var(--accent), #a7b4c4);
+}
+
+.battle-bar-fill.is-defender {
+  background: linear-gradient(90deg, #8c3b3b, #b05050);
+}
+
+.power-bars {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0.6rem;
+}
+
+.power-bar-row {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr 3.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.power-bar-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: right;
+}
+
+.power-bar-value {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.battle-log {
+  list-style: none;
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 0.25rem;
+  min-height: 4.5rem;
+  align-content: start;
+  text-align: left;
+  /* Long transcripts (abilities, ultimates) stay readable in place. */
+  max-height: 14rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Enemy-Hero presence warning above the forces list. */
+.hero-banner {
+  margin: 0.5rem 0 0;
+  color: #ffd700;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.battle-log-item {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.battle-log-item.is-momentum,
+.battle-log-item.is-climax {
+  color: var(--text);
+}
+
+.battle-log-item.is-attrition {
+  color: #d9a44a;
+}
+
+.battle-log-item.is-hero {
+  color: #ffd700;
+}
+
+.battle-log-item.is-tactic {
+  color: #e2725b;
+}
+
+/* High-tier ability beats: dangerous and unmistakable. */
+.battle-log-item.is-tier-high {
+  color: #ff5a4d;
+  font-weight: 700;
+}
+
+/* Very High tier: the strongest presentation the log offers. */
+.battle-log-item.is-tier-very-high {
+  color: #ff2e1f;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+/* Defeat attribution: the Hero that wiped the legion. */
+.defeat-cause {
+  color: #ff2e1f;
+  font-weight: 800;
+}
+
+.outcome {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.5rem;
+}
+
+.outcome.is-victory {
+  color: var(--ok);
+}
+
+.outcome.is-defeat {
+  color: #ff6b6b;
+}
+
+.loot-line {
+  color: var(--ok);
+}
+
+.hero-line {
+  color: #d8a657;
+}
+
+.panel-footer {
+  margin-top: 1.5rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.panel-footer span {
+  font-variant-numeric: tabular-nums;
+}
+
+.screen-header-with-badge {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.screen-header-with-badge > div {
+  text-align: left;
+}
+
+.prestige-badge {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--muted);
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.prestige-badge:hover {
+  color: var(--text);
+}
+
+.prestige-badge.is-available {
+  color: #d8b4fe;
+  border-color: #7c5cbf;
+  box-shadow: 0 0 12px rgb(124 92 191 / 35%);
+}
+
+.prestige-close {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.8rem;
+}
+
+.modal-overlay:not([hidden]) {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(10 12 18 / 72%);
+  /* Dragging inside the modal must not scroll the page underneath. */
+  overscroll-behavior: contain;
+}
+
+.modal-card {
+  position: relative;
+  width: min(100%, 24rem);
+  /* Short viewports (landscape phones, small screens with browser chrome):
+     cap the card inside the overlay padding and let it scroll, so action
+     buttons at the bottom can never be clipped out of reach. */
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 60px rgb(0 0 0 / 55%);
+}
+
+.modal-heading {
+  margin-top: 1rem;
+  margin-bottom: 0.15rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.modal-availability {
+  min-height: 1.2em;
+  margin-top: 1rem;
+  color: var(--muted);
+}
+
+.modal-failure {
+  margin-top: 0.4rem;
+  color: #ff6b6b;
+}
+
+.modal-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+@keyframes deny-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  20% {
+    transform: translateX(-4px);
+  }
+
+  40% {
+    transform: translateX(4px);
+  }
+
+  60% {
+    transform: translateX(-3px);
+  }
+
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+.item-row.is-denied {
+  border-color: #ff6b6b;
+  animation: deny-shake 0.3s ease;
+}
+
+.stats-subline.is-risky {
+  color: #ffb347;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .layout {
+    padding-inline: 0.5rem;
+  }
+
+  .layout > .screen,
+  .screen {
+    flex-basis: 100%;
+    width: 100%;
+    padding: 1.1rem 0.9rem;
+  }
+
+  .tab-button {
+    min-height: 44px;
+    padding: 0.65rem 0.3rem;
+  }
+
+  .harvest-button {
+    min-height: 56px;
+    font-size: 1.05rem;
+  }
+
+  .deploy-button,
+  .amount-button,
+  .buy-button {
+    min-height: 44px;
+  }
+
+  .attack-button,
+  .advance-button {
+    padding: 1rem 1.5rem;
+  }
+
+  .battle-log {
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .float-gain {
+    animation: none;
+    opacity: 0;
+  }
+
+  /* Decorative pulses stop for motion-sensitive users — at every width,
+     not only inside the mobile breakpoint. */
+  .advance-button,
+  .tab-button.has-notification,
+  .souls-counter span.is-gained {
+    animation: none;
+    text-shadow: none;
+  }
+
+  .item-row.is-flash {
+    animation: none;
+  }
+
+  .item-row.is-denied {
+    animation: none;
+  }
+
+  .harvest-button,
+  .harvest-anchor::before,
+  .harvest-anchor::after,
+  .harvest-burst {
+    animation: none;
+  }
+
+  .harvest-anchor::before,
+  .harvest-anchor::after {
+    opacity: 0;
+  }
+}
+
+/* ========================================================================
+   DASHBOARD LAYOUT LAYER
+   Persistent clicker header → tab nav → three-column dashboards.
+   Component styles above remain untouched; this section only adds the
+   shell layout, panels and derived-stat displays.
+   ======================================================================== */
+
+.app-shell {
+  align-items: stretch;
+  max-width: 1440px;
+}
+
+/* --- Persistent Soul Clicker header --- */
+
+.game-header {
+  width: 100%;
+  padding: 1rem clamp(0.9rem, 2vw, 1.5rem);
+}
+
+.header-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.55rem;
+}
+
+.header-brand {
+  display: grid;
+  justify-items: center;
+}
+
+.header-brand .screen-title {
+  font-size: 1.35rem;
+}
+
+.header-counter {
+  display: grid;
+  gap: 0.15rem;
+  justify-items: center;
+}
+
+.game-header .souls-counter {
+  font-size: 1.7rem;
+}
+
+.game-header .stats-subline {
+  margin-bottom: 0;
+}
+
+.game-header .offline-toast {
+  justify-self: center;
+}
+
+.game-header .harvest-button {
+  padding: 0.9rem 2.4rem;
+  font-size: 1.15rem;
+}
+
+.tab-bar {
+  width: 100%;
+}
+
+/* --- Dashboard grid: ~25% / ~45% / ~30% --- */
+
+.pane {
+  width: 100%;
+}
+
+/* Author `display` rules beat the UA's [hidden] rule; this guard keeps tab
+   panes hideable no matter what display the pane itself declares. */
+.pane[hidden] {
+  display: none;
+}
+
+.tab-panes {
+  width: 100%;
+}
+
+.dashboard {
+  display: grid;
+  /* Pure fraction tracks: every column shares the container proportionally,
+     so no viewport width can ever push a track past the container edge. */
+  grid-template-columns: minmax(0, 25fr) minmax(0, 45fr) minmax(0, 30fr);
+  gap: 1.15rem;
+  align-items: start;
+  text-align: left;
+}
+
+.dash-col {
+  min-width: 0;
+  display: grid;
+  gap: 1.15rem;
+}
+
+/* --- Child-content shrink kit: cards adapt inside narrower columns --- */
+
+.dash-col .item-row {
+  flex-wrap: wrap;
+}
+
+.dash-col .item-main {
+  flex: 1 1 140px;
+}
+
+.dash-col .buy-button {
+  margin-left: auto;
+}
+
+.dash-col .unit-actions {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.dash-col .amount-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 100%;
+}
+
+.panel {
+  min-width: 0;
+}
+
+.panel {
+  padding: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 28%);
+}
+
+.panel-emphasis {
+  background: linear-gradient(180deg, #21232a, #1d1f24);
+  border-color: #3a3e47;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 32%);
+}
+
+.panel-locked {
+  border-style: dashed;
+  opacity: 0.75;
+}
+
+.panel-title {
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.panel-subtitle {
+  margin-top: 1.1rem;
+  margin-bottom: 0.45rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* --- Stat rows / breakdown lists --- */
+
+.stat-grid {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.stat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.stat-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-value.accent {
+  color: var(--accent);
+}
+
+.breakdown-list {
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.breakdown-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.28rem 0.55rem;
+  border-bottom: 1px dashed var(--border);
+  font-size: 0.86rem;
+}
+
+.breakdown-row:last-child {
+  border-bottom: none;
+}
+
+.breakdown-empty {
+  padding: 0.3rem 0;
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+/* --- Campaign progression ladder --- */
+
+.progression-list {
+  list-style: none;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.progression-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.34rem 0.55rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+}
+
+.progression-icon {
+  width: 1.1em;
+  text-align: center;
+}
+
+.progression-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progression-power {
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.progression-row.is-cleared {
+  color: var(--ok);
+}
+
+.progression-row.is-current {
+  font-weight: 700;
+  color: #fff;
+  background: rgb(var(--accent-rgb) / 14%);
+  outline: 1px solid rgb(var(--accent-rgb) / 45%);
+}
+
+.progression-row.is-current .progression-icon,
+.progression-row.is-current .progression-power {
+  color: var(--accent);
+}
+
+.progression-row.is-locked {
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+/* --- Crypt placeholders --- */
+
+.relic-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.relic-tile {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  font-size: 0.9rem;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  background: var(--panel-inset);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  cursor: default;
+}
+
+/* --- Narrow-column safety for shop rows --- */
+
+.item-main {
+  min-width: 0;
+}
+
+.item-name {
+  overflow-wrap: anywhere;
+}
+
+/* --- Responsive collapse --- */
+
+@media (max-width: 1119px) {
+  .dashboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+
+  .dash-center {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+
+  .dash-center {
+    grid-column: auto;
+    order: 0;
+  }
+
+  .header-core {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .header-counter {
+    justify-items: center;
+  }
+
+  .game-header .offline-toast {
+    justify-self: center;
+  }
+
+  .relic-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .power-bar-row {
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+    gap: 0.35rem;
+  }
+}
+
+/* --- Shrink guarantees for header and navigation --- */
+
+.game-header,
+.header-core,
+.header-counter,
+.header-brand {
+  min-width: 0;
+}
+
+.game-header .souls-counter span {
+  overflow-wrap: anywhere;
+}
+
+.tab-bar .tab-button {
+  min-width: 0;
+}
+
+/* Hidden system tabs leave the navigation layout entirely. */
+.tab-button[hidden] {
+  display: none;
+}
+
+/* --- Campaign completion state (World center panel) --- */
+
+.campaign-complete {
+  display: grid;
+  gap: 0.3rem;
+  justify-items: center;
+  padding: 1.25rem 0.75rem;
+  text-align: center;
+}
+
+/* Author `display` rules beat the UA's [hidden] rule (same trap as panes
+   above): without this guard the completion box shows from page load. */
+.campaign-complete[hidden] {
+  display: none;
+}
+
+.cc-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.cc-subtitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.cc-copy {
+  max-width: 26rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.cc-divider {
+  width: min(100%, 16rem);
+  height: 1px;
+  margin: 0.6rem 0;
+  background: var(--border);
+}
+
+.cc-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cc-final-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.cc-status {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ok);
+}
+
+.cc-value {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.progression-complete-line {
+  margin-top: 0.6rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: center;
+}
+
+/* ======== SAVE SYSTEM DIAGNOSTICS & BACKUPS ======== */
+
+.status-item.is-bad {
+  color: #ff8a80;
+}
+
+.status-item.is-bad::before {
+  background: #ff5252;
+}
+
+.backup-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.backup-button {
+  flex: 1 1 0;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.backup-button:hover {
+  filter: brightness(1.25);
+}
+
+.danger-button {
+  color: #ffb4a9;
+  border-color: rgba(255, 82, 82, 0.55);
+  background: rgba(255, 82, 82, 0.12);
+}
+
+.danger-button:hover {
+  background: rgba(255, 82, 82, 0.28);
+}
+
+/* ======== ALERT BANNER (save-system warnings) ======== */
+
+.alert-banner-stack {
+  position: fixed;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 0.4rem;
+  width: min(92vw, 30rem);
+  z-index: 100;
+}
+
+.alert-banner {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--panel);
+  border-radius: 9px;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.45);
+}
+
+.alert-banner.is-error {
+  border: 1px solid #ff5252;
+}
+
+.alert-banner.is-warning {
+  border: 1px solid #ffb74d;
+}
+
+.alert-banner.is-info {
+  border: 1px solid var(--border);
+}
+
+.alert-banner-text {
+  flex: 1 1 auto;
+}
+
+.alert-banner-dismiss {
+  flex: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  font-size: 0.8rem;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.alert-banner-dismiss:hover {
+  color: var(--text);
+}
+
+/* ======== TROPHY BUTTON (achievements, top-left of the header) ======== */
+
+.game-header {
+  position: relative;
+}
+
+.trophy-button {
+  position: absolute;
+  top: 0.7rem;
+  left: 0.7rem;
+  width: 2.4rem;
+  height: 2.4rem;
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--text);
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.trophy-button:hover {
+  opacity: 1;
+  filter: brightness(1.2);
+}
+
+/* ======== ACHIEVEMENTS OVERLAY PANEL ======== */
+
+.overlay-panel[hidden] {
+  display: none;
+}
+
+.overlay-panel:not([hidden]) {
+  /* Fixed overlay covering everything below the header; `top` is set
+     inline by AchievementView from the live header rect. */
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40; /* above tab panes, below modals (60) and diagnostics (55) */
+  overflow-y: auto;
+  padding: 1rem clamp(0.75rem, 3vw, 1.5rem) 2rem;
+  background: rgb(10 12 18 / 94%);
+  border-top: 1px solid var(--border);
+}
+
+.overlay-panel-inner {
+  width: min(100%, 34rem);
+  margin: 0 auto;
+}
+
+.overlay-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.overlay-panel-title {
+  font-size: 1.05rem;
+  white-space: nowrap;
+}
+
+.overlay-panel-summary {
+  flex: 1 1 auto;
+  text-align: right;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.overlay-close {
+  flex: none;
+  width: 1.9rem;
+  height: 1.9rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.15s ease, filter 0.15s ease;
+}
+
+.overlay-close:hover {
+  color: var(--text);
+  filter: brightness(1.25);
+}
+
+.achievement-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.achievement-row.is-completed {
+  border-color: rgb(var(--accent-rgb) / 55%);
+  background: rgb(var(--accent-rgb) / 10%);
+}
+
+.achievement-row.is-masked {
+  opacity: 0.55;
+}
+
+.achievement-row.is-masked .item-name {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+}
+
+.achievement-row.is-completed .achievement-status {
+  color: #101210;
+  background: var(--ok);
+}
+
+.achievement-desc {
+  font-size: 0.78rem;
+  white-space: normal;
+}
+
+.achievement-side {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.achievement-progress {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 4.5rem;
+}
+
+.achievement-reward {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #d8b4fe;
+  white-space: nowrap;
+}
+
+/* ======== PRESTIGE SHOP ======== */
+
+.modal-pending {
+  color: #d8b4fe;
+  font-weight: 600;
+}
+
+.prestige-shop-card {
+  width: min(100%, 30rem);
+  text-align: left;
+}
+
+.shop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.shop-header .section-title {
+  margin: 0;
+}
+
+.shop-points-line {
+  font-size: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.shop-points {
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: #d8b4fe;
+  font-variant-numeric: tabular-nums;
+}
+
+.prestige-shop-card > .stats-subline {
+  margin-bottom: 0.6rem;
+}
+
+.shop-grid {
+  display: grid;
+  gap: 0.45rem;
+  max-height: min(58vh, 480px);
+  overflow-y: auto;
+  padding-right: 0.15rem;
+}
+
+.shop-row .shop-effect {
+  white-space: normal;
+}
+
+.shop-owned {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ok);
+}
+
+.shop-side {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.shop-row.is-owned {
+  opacity: 0.85;
+  border-color: rgb(62 207 142 / 45%);
+}
+
+.shop-row.is-owned .buy-button {
+  background: rgb(62 207 142 / 18%);
+  color: var(--ok);
+  cursor: default;
+}
+
+/* ======== COMPACT PURCHASE ROWS (Crypt buildings + Necromancy research) ======== */
+
+.building-row {
+  /* Tighter cards keep both Crypt panels short enough to share the column. */
+  padding: 0.4rem 0.6rem;
+  gap: 0.5rem;
+}
+
+.building-row .item-main {
+  gap: 0.15rem;
+}
+
+.building-row .buy-button {
+  align-self: center;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 720px) {
+  .building-row .buy-button {
+    min-height: 34px; /* overrides the global 44px touch-target bump */
+  }
+}

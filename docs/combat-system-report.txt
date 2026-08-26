@@ -1,0 +1,573 @@
+================================================================================
+                    COMBAT SYSTEM REPORT — WebClickerGame
+                        ("Endless Souls" — Age of Ash)
+================================================================================
+
+PURPOSE
+-------
+This document is a comprehensive technical report describing how combat works in
+this game: the architecture, every formula, unit stats, enemy armies, heroes,
+battle flow, rewards, and persistence. It is documentation only — no game code
+was changed to produce it.
+
+--------------------------------------------------------------------------------
+1. HIGH-LEVEL OVERVIEW
+--------------------------------------------------------------------------------
+
+Combat in this game is NOT click-driven. The clicker loop only generates Souls
+(the currency used to raise undead troops). Combat itself is an AUTOMATED,
+TICK-BASED ATTRITION SIMULATION between two aggregate army stacks:
+
+  * You (the attacker): an undead legion built from units, each with a
+    "combatPower" stat.
+  * Them (the defender): a campaign target's garrison, rolled fresh for every
+    battle from a fixed composition definition.
+
+You deploy a percentage of your legion (25% / 50% / 75% / 100%) against one of
+10 campaign targets. A battle then plays out automatically in ticks of 0.7
+seconds until one side is wiped out.
+
+There are NO critical hits, combos, dodges, or parries anywhere in the code.
+The only "special ability" system belongs to enemy Heroes ("heroic threat").
+
+Architecture principles:
+  * Event-driven design via an EventBus; systems own state and persist through
+    a SaveManager (localStorage), views just render payloads.
+  * All combat math lives in pure, state-free modules (formulas.ts,
+    interactions.ts) so the simulation and any future resolver share identical
+    math.
+  * Key files live under src/systems/combat/.
+
+--------------------------------------------------------------------------------
+2. CORE COMBAT FILES (src/systems/combat/)
+--------------------------------------------------------------------------------
+
+2.1 formulas.ts — shared combat math (state-free)
+-------------------------------------------------
+* effectivePower(basePower, modifier)
+      -> returns basePower * modifier.
+
+* casualtyFraction(baseRatePerTick, ownEffectivePower, enemyEffectivePower,
+                   maxFraction)  — THE core attrition formula:
+
+        fraction = (baseRatePerTick * enemyEffectivePower) / ownEffectivePower
+        clamped into [0, maxFraction]
+
+      If ownEffectivePower <= 0 the function returns 1 (total wipe).
+
+2.2 pacing.ts — battle tuning constants
+---------------------------------------
+HERO_RESOLVE_BASE = 5
+
+DEFAULT_BATTLE_PACING:
+    tickIntervalMs             = 700     (one combat tick every 0.7 s)
+    baseCasualtyRatePerTick    = 0.18    (attrition rate constant)
+    maxCasualtyRatePerTick     = 0.11    (clamps worst-case loss rate so a
+                                          hopeless fight still lasts ~9 ticks,
+                                          roughly 6 seconds of real time)
+    lastStandThreatMultiplier  = 1.75
+    lastStandReinforceChance   = 0.10
+    maxHeroResolveLossPerTick  = 1.0     (ceiling; prevents burst vaporization)
+
+HERO_COMBAT_TUNING (Hero-only paths; normal units never consult these):
+    loneDamageReduction        = 0.60    (lone Hero incoming reduction)
+    allyBonusPerSqrtStep       = 0.18    (pack bonus per sqrt(extra hero))
+    allyBonusCapCount          = 5
+    maxTotalReduction          = 0.85    (hard ceiling on total reduction)
+    swarmMassExponent          = 0.85    (attacker headcount diminishment)
+    unitCpExponent             = 0.30    (unit quality compounding)
+    swarmMassHalf              = 800     (mass at which drain hits half rate)
+    incomingBaseRate           = 1.35    (base resolve-drain rate)
+    cleaveBodiesPerResolution  = 300     (flat Hero swing vs victim stacks)
+    swingUnitsPerResolutionPerHero = 180 (per-hero kill budget, pre-tier)
+    budgetThreatBaseline       = 0.04    (threat level mapping to 1.0x budget)
+
+Retreat constants:
+    RETREAT_THRESHOLD          = 0.35    (eligible when defenders <= 35% alive)
+    RETREAT_CHANCE_PER_TICK    = 0.12
+    RETREAT_MOMENTUM_BONUS     = 0.06
+
+2.3 interactions.ts — type/tag weakness system
+----------------------------------------------
+UNIT_TYPES: 'melee' | 'ranged'
+UNIT_TAGS : 'spirit' | 'bone' | 'flesh' | 'armored'
+
+TYPE_TAG_RULES — exactly two weakness rules exist:
+    { attackerType: 'ranged', defenderTag: 'bone',  modifier: 1.25 }
+    { attackerType: 'melee',  defenderTag: 'flesh', modifier: 1.25 }
+
+computeEffectivePower(attackerGroups, defenderGroups):
+For each attacker group that has a type:
+    multiplier = 1 + SUM over rules( (rule.modifier - 1)
+                                     x shareOfDefenderRawPowerCarryingTag )
+    effective += rawPower * multiplier
+
+In other words, the x1.25 bonus applies ONLY to the proportionally-matched
+slice of the enemy army that carries the weak tag. Resistances are live rules
+with modifiers < 1:
+
+    resist-armored-vs-ranged : ranged attackers vs 'armored' share  x0.50
+    resist-armored-vs-melee  : melee  attackers vs 'armored' share  x0.75
+
+Symmetric: enemy and player armored units benefit alike. NOTE — because
+defender bleed is clamped at maxCasualtyRatePerTick whenever their attacker
+is favored, armor's observable effect concentrates at the power boundary:
+near parity the x0.75 cut can flip which side is "winning" and thereby swap
+the clamp regime (the previously-uncapped defense bleeds uncapped). See
+harness gate S9, which pins the exact scaling + regime flip.
+
+Practical relevance for the player: Zombies carry tag 'flesh' (take x1.25 from
+enemy ranged attacks); Skeletons and Death Knights carry tag 'bone' (take x1.25
+from enemy melee). Player Flesh Golems and Death Knights carry 'armored'
+(x0.75 from melee-type attackers); all Heroes are 'armored' too.
+
+2.4 terrain.ts — battlefield modifiers
+--------------------------------------
+Terrain modifies each side multiplicatively:
+
+    Terrain            Attacker   Defender
+    -------------------------------------
+    plains              1.00       1.00
+    forest              0.90       1.10
+    hills               0.85       1.15
+    mountains           0.65       1.35
+    settlement          0.85       1.20
+    walled-settlement   0.80       1.25
+    fortress            0.70       1.35
+
+2.5 world.ts — the campaign ladder (10 targets)
+-----------------------------------------------
+CURRENT_ERA = { id: 'age-of-ash', name: 'Age of Ash' }
+
+Each TargetDefinition has: combatPower (derived from its army), army
+composition, heroChance (independent roll per hero slot, max 2 heroes; target 1
+is always heroless), terrain, loot table (granted per ENEMY casualty on
+victory), 1-based order, and flavor text.
+
+THE FULL CAMPAIGN LADDER:
+
+ #  Target                CP       Army composition                              Hero%  Terrain           Loot per kill
+ -- --------------------  -------  --------------------------------------------  -----  ----------------  ---------------
+ 1  Village                 100   recruit-melee x60, recruit-ranged x40           0.00  settlement        bone 1
+ 2  Large Settlement        300   trained-melee x20, trained-ranged x40,          0.10  plains            bone 1, flesh 1
+                                 recruit-melee x60, recruit-ranged x60
+ 3  Walled Town             900   veteran-melee x30, trained-ranged x80,          0.18  walled-settlement bone 1, flesh 1, iron 1
+                                 trained-melee x100, recruit-ranged x120
+ 4  Grand Town            2 500   veteran-melee x150, veteran-ranged x100,        0.30  settlement        bone 2, flesh 2, iron 1
+                                 trained-ranged x100, trained-melee x40,
+                                 recruit-melee x80
+ 5  Fortified City        7 000   elite-melee x120, elite-ranged x90,             0.42  fortress          bone 2, flesh 2, iron 2
+                                 veteran-melee x250, veteran-ranged x100
+ 6  Temple City          18 000   elite-melee x400, elite-ranged x350,            0.55  settlement        bone 2, flesh 2, iron 2
+                                 veteran-melee x250, veteran-ranged x50,
+                                 commander x10
+ 7  Royal Fortress       45 000   elite-melee x900, elite-ranged x800,            0.70  fortress          bone 3, flesh 3, iron 2
+                                 veteran-melee x800, veteran-ranged x300,
+                                 commander x35, recruit-ranged x100
+ 8  Kingdom Capital     110 000   elite-melee x2300, elite-ranged x2200,          0.82  settlement        bone 3, flesh 3, iron 3
+                                 veteran-melee x1500, veteran-ranged x700,
+                                 commander x40
+ 9  Great Kingdom       275 000   elite-melee x5000, elite-ranged x5150,          0.92  settlement        bone 3, flesh 3, iron 3
+                                 veteran-melee x4000, veteran-ranged x2000,
+                                 commander x400
+10  Imperial Stronghold 700 000   elite-melee x13000, elite-ranged x12500,        0.95  settlement        bone 4, flesh 4, iron 4
+                                 veteran-melee x9500, veteran-ranged x6000,
+                                 commander x1100
+
+Integrity guard: assertCompositionTotals() runs at module load and asserts that
+every army's weighted power sum equals its declared combatPower exactly
+(console errors otherwise). This protects progression integrity.
+
+2.6 enemyUnits.ts — enemy roster + Heroes
+-----------------------------------------
+ENEMY_UNIT CP values:
+    recruit-melee / recruit-ranged ....... 1
+    trained-melee / trained-ranged ....... 3
+    veteran-melee / veteran-ranged ....... 8
+    elite-melee / elite-ranged ........... 20  (tag: armored)
+    commander ............................ 60  (tag: armored)
+
+Heroic Threat ability ('heroic-threat'):
+Each tick, a living Hero removes (ability.strength) x the player's CURRENT
+total troop count, split proportionally across the player's groups.
+Threat constants:
+    HERO_THREAT_FRESH       = 0.04
+    HERO_THREAT_NEMESIS_CAP = 0.08
+
+Hero scaling formulas:
+    hero CP     = max(200, round(target.combatPower * 0.06))   // 6% of target, min 200
+    threat      = fresh heroes flat 0.04; returning "nemesis" heroes
+                  = min(0.08, 0.04 + 0.004 * order)
+    resolve     = HERO_RESOLVE_BASE + floor(order / 3)         // orders 1-2 -> 5, order 10 -> 8
+    Heroes are melee-tier 'hero', tagged 'armored'.
+
+MAX_HEROES_PER_TARGET  = 2
+NEMESIS_HIJACK_CHANCE  = 0.5
+
+rollTargetArmy(...): builds the garrison FRESH for every battle:
+    1. Expands the standing composition entries into stacks.
+    2. Rolls up to 2 INDEPENDENT hero slots (each succeeds with heroChance).
+    3. Per slot identity: a previously-fled veteran ("nemesis") hijacks the
+       slot if it is the final target or rng() < NEMESIS_HIJACK_CHANCE (0.5);
+       otherwise a unique fresh name is drawn from the pool.
+    4. Final-target guarantee: all remaining owed fled Heroes force-spawn past
+       the 2-slot cap on the Imperial Stronghold.
+
+2.7 simulation.ts — THE BATTLE ENGINE (class BattleSimulation)
+--------------------------------------------------------------
+Pure state + math; no EventBus/DOM. Documented pipeline:
+
+  1. Effective powers: raw CP -> type/tag interactions -> terrain ->
+     external attacker modifier (prestige).
+  2. Attrition: both sides lose a fraction of strength scaled by opposing
+     power. The OUTGUNNED side's loss rate is CLAMPED at 0.11/tick while the
+     dominant side is uncapped. Every living stack loses at least 1 unit/tick
+     (except Heroes, who bleed Resolve instead).
+  3. Heroic Threat: each living enemy Hero strips a % of the PLAYER'S remaining
+     troops, split proportionally.
+  4. Last Stand: once ONLY Heroes remain on defense, their combined threat is
+     multiplied by 1.75 and ONE reinforcement Hero may join (10% chance).
+  5. The side reaching zero strength loses; ties favor the attacker.
+
+Key mechanics in detail:
+
+advance(deltaSeconds): accumulates real time and runs processTick() once every
+0.7 s. runToCompletion(maxTicks=100000) resolves synchronously (used for
+restored saves).
+
+computePowers():
+    attackerPower = computeEffectivePower(atk, def) * terrain.attacker
+                                                 * externalAttackerModifier
+    defenderPower = computeEffectivePower(def, atk) * terrain.defender
+
+Momentum (momentumFrom): attacker share >= 0.60 -> 'attacker';
+                         attacker share <= 0.40 -> 'defender'; else 'even'.
+
+processTick() — ordered phases:
+    1. Casualty fractions, asymmetric caps: the side with MORE power has NO
+       cap (infinity); the side with less (or tied) is capped at 0.11/tick.
+    2. applyAttrition() on attackers; first-blood event fires once.
+    3. applyAttrition() on defenders.
+    4. applyHeroicThreat().
+    5. Retreat check: eligible when surviving defenders <= 35% of deployed.
+       Per living non-retreated hero: chance = 0.12 (+0.06 if attacker
+       momentum). Fleeing heroes mark 'retreated', are recorded in the fled
+       hero grudge ledger (fledHeroNames), and emit a climax log line.
+    6. Last Stand: triggers ONCE when living heroes > 0 and no mortal
+       defenders remain. One reinforcement roll at 10% may push a new hero
+       stack (provided by the reinforcement callback).
+    7. Threshold events: defender < 50% "resistance weakened"; defender <= 25%
+       "defense collapsing"; attacker <= 25% "legion wavering".
+    8. Momentum swing events; win/lose check: defenders <= 0 -> VICTORY,
+       attackers <= 0 -> DEFEAT.
+
+applyAttrition(groups, fraction) — mortal stacks:
+    desired = surviving * fraction + carry        // fractional-loss buffer
+    lost    = min(surviving, max(1, floor(desired)))  // min-1 breaks geometric tails
+    carry   = max(0, desired - lost)
+    surviving -= lost
+
+applyHeroResolveAttrition(group) — Heroes bleed RESOLVE, not bodies:
+    swarmMass  = SUM over attacker stacks(surviving^0.85 * cpEach^0.30)
+                 // headcount has diminishing returns; unit quality compounds
+    incoming   = (1.35 * swarmMass / (swarmMass + 800))
+    drain      = min(incoming * heroDamageTakenFraction(livingHeroes), 1.0)
+    resolve -= drain (carry reset to 0)
+    first wound emits a "bloodied" beat; resolve <= 0 -> hero slain with a
+    climax line. Weak chaff hordes barely register; only genuinely powerful
+    armies put a Hero on a death clock.
+
+applyHeroicThreat():
+    threatShare = SUM over living heroes(aliveCount * ability.strength)
+                  [x max(1, 1.75) if Last Stand active]
+    threateningHeroes = count of living threatening heroes
+    swingBudget = 180 * max(1, threateningHeroes)
+                  * max(1, threatShare / 0.04)
+                  // per-hero kill cap; scales with nemesis/Last Stand threat
+    weight per player group w = REFERENCE_CP(20) / max(combatPowerEach, 1)
+        // inverse-CP weighting: cheap units (Wraiths/Skeletons) take
+        // disproportionate losses vs Heroes
+    desired(groupLoss) = (playerTotal * threatShare + 300 cleave bodies)
+                         * victimTierMultiplier(cpEach) * (w / SUM(w)) + carry
+    allowed = min(desired, swingBudget * tierMultiplier)
+    lost = min(surviving, floor(allowed)); budget spends allowed/tierMult
+
+Event log: pinned events never scroll away; rolling window of MAX_EVENTS = 12
+lines (minimum 4). The first 3 named hero arrivals get individual gold lines;
+overflow arrivals are aggregated into one line.
+
+2.8 CombatSystem.ts — orchestration, state, persistence
+-------------------------------------------------------
+class CombatSystem owns the campaign frontier, live battle lifecycle,
+persistence, and publishing. Wired in main.ts with
+getAttackerModifier: () => prestige.effects.attackerDamageMultiplier.
+
+startBattle(targetId, deployedArmy, attackerPower):
+    Validations: target index must be <= clearedCount (frontier plus already
+    cleared targets are replayable); groups valid; positive power. Rolls the
+    DEFENDER ARMY FRESH via rollTargetArmy (passing heroChance, the fled-hero
+    grudge ledger, final-target flag, and target CP). NOTE: deployment is NOT
+    debited here — main.ts commits the debit only after acceptance.
+
+tick(deltaSeconds): advances the sim; calls finishBattle() upon completion.
+
+resolveSavedBattle(saved): battles restored from a save resolve INSTANTLY
+(runToCompletion) against a fresh defender roll — defenders are never
+persisted, only your deployed army is.
+
+finishBattle():
+    * Campaign advance: victory over the FRONTIER target increments
+      clearedCount (+1 unlocks next target). Replay victories never move it.
+    * DEFEAT DESTROYS 100% OF DEPLOYED TROOPS. Victory returns survivors.
+    * LOOT FORMULA (victory only):
+          lootGained.resource = target.loot.resource * snapshot.defenderCasualties
+    * Hero fate roll (see heroFates below) using
+      advantageRatio = initialAttackerPower / max(1, initialDefenderPower).
+    * Grudge ledger update: fleeing heroes recorded as {name, fledOrder}.
+    * Emits CombatEvents.BattleEnded with a BattleResult payload.
+
+Persistence (schema v1, localStorage key webclickergame.combat):
+    { v, battle?: {targetId, deployedArmy, attackerPower, startedAtMs},
+      unlockedTargets, defeatedTargets, fledHeroes: [{name, fledOrder}] }
+Strict validation; legacy unlockedTargets -> defeatedTargets migration.
+resetRun() wipes everything for prestige.
+
+Publishing: publish() emits a CombatChangedPayload
+{phase: idle|battle|result, eraName, targets[], currentTargetId,
+clearedCount, battle, result} consumed by the UI.
+
+2.9 heroFates.ts — post-battle hero destiny
+-------------------------------------------
+rollHeroFates(input) -> BattleHeroOutcome[]:
+    * Fled heroes always report as {killed:false, fled:true}.
+    * On defeat, standing heroes get NO fate line (they held the field).
+    * On victory, each standing hero risks death with:
+          killChance = clamp(0.3 + 0.18 * (advantageRatio - 1), 0.3, 0.85)
+      i.e. 30% at even odds ramping to 85% on crushing wins
+      (ratio >= ~3.06).
+
+2.10 heroNames.ts
+-----------------
+36 built-in Celtic/Irish names; optionally merged with public/hero-names.txt
+(one per line, '#' comments, case-insensitive dedupe). Names are picked unique
+per battle.
+
+2.11 battleFlavor.ts
+--------------------
+Text pools only (no math): terrain openings, hero arrival/nemesis return/
+bloodied/escalation/slain/retreat/last-stand/reinforcement lines, first blood,
+rank loss/wipe, resistance weakened, defense collapsing, legion wavering, and
+momentum swing lines. pickLine(pool, rng) selects; formatFlavor substitutes
+tokens.
+
+2.12 types.ts — key contracts
+-----------------------------
+BattleOutcomeType 'victory'|'defeat'; Momentum 'attacker'|'defender'|'even';
+DeployedGroup; ActiveBattleView; BattleResult; LootAmounts {bone,flesh,iron};
+TargetStatus 'current'|'cleared'|'locked'; CombatTargetView;
+CombatChangedPayload; CombatEvents {Changed:'combat:changed',
+BattleEnded:'combat:battle-ended'}.
+
+2.13 CombatView.ts — UI layer
+-----------------------------
+Deployment percentages: [0.25, 0.5, 0.75, 1]. Attack button fires the attack
+handler with (percent, currentTargetId). "Continue Attack" retries the
+frontier. Preview uses the same pure math as the engine (takeFromArmy +
+armyPower) and shows a risk tint when deployed power < enemy power. Result
+screen renders VICTORY/DEFEAT, survivors, casualties, enemy casualties, loot
+and hero fates ("slain"/"escaped"/"fled the field"). Power bars scale via
+barPercent(current, initial).
+
+--------------------------------------------------------------------------------
+3. PLAYER-SIDE SYSTEMS THAT FEED COMBAT
+--------------------------------------------------------------------------------
+
+3.1 Player unit roster (src/systems/legion/units.ts) — all melee-type
+---------------------------------------------------------------------
+ Unit           CP   SoulCost  Resource Costs        Tags             Unlock
+ -------------  ---  --------  --------------------  ---------------  ------------------------
+ Wraith         1    1         —                     spirit           always
+ Skeleton       2    1         bone 1                bone             always
+ Zombie         6    3         flesh 10              flesh            concealed until first
+                                                                     Flesh received
+ Flesh Golem    25   10        bone 10, flesh 10     flesh, armored   concealed; after 4 clears
+ Death Knight   75   25        bone 25, flesh 25,    bone, armored    concealed; after 5 clears
+                               iron 10
+
+LEGION_UNLOCK_REQUIREMENT: own >= 1 Soul Siphon generator before any unit can
+be raised.
+
+Weakness relevance (see interactions): Zombies (flesh) take x1.25 from enemy
+RANGED; Skeletons and Death Knights (bone) take x1.25 from enemy MELEE.
+
+LegionSystem.getArmySnapshot(): visible units with count > 0 -> the
+authoritative army shape fed into combat. deployUnits(amount) takes troops OUT
+of the garrison (they are committed once battle starts). addUnits() returns
+victory survivors to the garrison and handles purchases.
+
+deployment.ts — shared deployment math:
+    takeFromArmy(army, amount): takes up to `amount` troops CHEAPEST-FIRST
+                                (array order = cheapest tier first).
+    armyPower(groups): SUM(count * combatPowerEach).
+
+afford.ts payableCount(): min(floor(souls/soulCost), per-resource floors).
+
+3.2 Prestige -> permanent attacker buff
+---------------------------------------
+PRESTIGE_DAMAGE_BONUS_PER_COUNT = 0.10
+attackerDamageMultiplier = 1 + prestigeCount * 0.10
+(+10% attacker effective power per prestige count.)
+
+This is the ONLY permanent cross-run buff and flows into combat exclusively via
+getAttackerModifier. Prestige requires the full campaign completed AND no
+active battle; performing it resets clicker, resources, legion, combat, and
+buildings.
+
+3.3 Buildings
+-------------
+auto-raise (leveled to 20): every 5 s raises up to `level` Wraiths while
+affordable (passive army growth).
+soul-net (one-shot, costs iron 1000): "+1 Soul per enemy killed in battle".
+Grants souls on BOTH victories and defeats (based on defender casualties).
+
+3.4 Clicker economy (indirect)
+------------------------------
+soulsPerClick = 1 + sum(upgrade bonus * level); upgrades add flat
++1/+10/+100/+1000 per level. Generators produce souls/sec (Soul Siphon 250/s,
+base cost 25 000 — owning one unlocks the Legion tab). Standard cost curve:
+round(baseCost * 1.15^count). Resources: bone/flesh/iron granted from loot.
+
+--------------------------------------------------------------------------------
+4. END-TO-END DATA FLOW (src/main.ts wiring)
+--------------------------------------------------------------------------------
+
+ATTACK FLOW (onAttack handler):
+    1. amount = floor(totalUnits * percent)
+    2. preview deployed = takeFromArmy(armySnapshot, amount); compute power
+    3. combat.startBattle(targetId, deployed, power)
+    4. ONLY IF ACCEPTED: legion.deployUnits(amount) commits the debit —
+       a rejected start can never leak troops.
+
+BATTLE-END FLOW (CombatEvents.BattleEnded listener):
+    Victory  -> legion.addUnits(...) for each survivor group; grant
+                result.lootGained amounts via resources.grant(...).
+    Soul Net -> clicker.grantSouls(result.defenderCasualties) — 1 soul per
+                enemy casualty on wins AND losses.
+    Defeat   -> nothing returned; deployment was already removed from the
+                garrison (100% loss).
+
+PROGRESSION LATCHES (CombatEvents.Changed listener):
+    Gates Prestige (campaignCompleted && !battleActive); opens the Crypt tab
+    after the first clear; unlocks Flesh Golem (>= 4 clears) and Death Knight
+    (>= 5 clears) via legion.unlockUnit.
+
+BOOT RESTORE ORDER:
+    Legion restores BEFORE Clicker (generator-gate ordering); hero names are
+    installed BEFORE combat restore (loads public/hero-names.txt with fallback
+    to built-ins); saved mid-battle deployments resolve instantly during
+    combat.restore().
+
+GAME LOOP: GameLoop rAF loop with delta clamped to 0.1 s broadcasts
+AppEvents.Update; CombatSystem consumes it to advance battles.
+
+--------------------------------------------------------------------------------
+5. PERSISTENCE MODEL
+--------------------------------------------------------------------------------
+
+Separate localStorage blobs per system (webclickergame.combat, .legion,
+.resources, .clicker, .prestige, .buildings, .session, .ui), all schema v1.
+
+Combat blob contains:
+    { v, battle?{targetId, deployedArmy, attackerPower, startedAtMs} | null,
+      unlockedTargets, defeatedTargets, fledHeroes:[{name, fledOrder}] }
+
+Defender armies are NEVER persisted — they are re-rolled fresh for every
+battle including resumed ones. Strict validation guards group shape; legacy
+saves migrate unlockedTargets -> defeatedTargets.
+
+--------------------------------------------------------------------------------
+6. FORMULA CHEAT-SHEET
+--------------------------------------------------------------------------------
+
+Base power (side)       = SUM over stacks (count * combatPowerEach)
+
+Effective power (side)  = SUM over attacker stacks
+                            [ raw_i * (1 + SUM over weakness rules
+                                       ((mod_r - 1) * defenderTagShare_r) ) ]
+                          * terrain[attacker|defender]
+                          * (attacker only:) prestigeMultiplier
+                            (= 1 + 0.10 * prestigeCount)
+
+Casualty fraction/tick  = clamp(0.18 * enemyEffPower / ownEffPower, 0, cap)
+                          cap = infinity if this side outguns; else 0.11
+
+Mortal losses/tick      = min(surviving, max(1, floor(surviving * frac + carry)))
+
+Hero resolve drain/tick = clamp(frac, 0.35, 1.0); hero dies at resolve <= 0
+
+Heroic Threat           = SUM over living heroes (aliveCount * threatStrength)
+                          [x 1.75 during Last Stand]
+                          split across player groups by weight
+                          20/max(combatPowerEach, 1);
+                          groupLoss = floor(playerTotal * share * weightShare
+                                            + carry)
+
+Hero CP                 = max(200, round(targetCP * 0.06))
+Hero threat             = 0.04 fresh; nemesis = min(0.08, 0.04 + 0.004 * order)
+Hero resolve            = 5 + floor(order / 3)
+Hero retreat chance/tick= 0.12 (+0.06 with attacker momentum),
+                          eligible at <= 35% defenders alive
+Hero kill chance        = clamp(0.30 + 0.18 * (atkRatio - 1), 0.30, 0.85)
+(post-victory)
+
+Loot                    = target.lootTable * enemyCasualties (VICTORY ONLY)
+Soul Net                = +1 soul * enemyCasualties (ANY outcome)
+Defeat                  = 100% of deployed army destroyed; no loot;
+                          frontier unchanged
+Victory over frontier   = clearedCount + 1 -> next target unlocks
+                          (replays farm loot forever)
+Last Stand              = active once only mortal enemies are dead; threat x1.75;
+                          one reinforcement hero at 10% chance
+Nemesis return          = fled veteran hijacks a hero slot at 50% chance
+                          (guaranteed on the final target)
+
+--------------------------------------------------------------------------------
+7. QUICK STRATEGIC SUMMARY
+--------------------------------------------------------------------------------
+
+* Battles auto-resolve every 0.7 s; you cannot micro-manage mid-battle. Your
+  decisions are: which target, what % to deploy, and when to retreat from the
+  idea entirely (there is no in-battle flee for the player).
+* Deploying everything maximizes power but risks total annihilation on defeat —
+  defeat destroys 100% of the deployed force.
+* Composition matters: ranged-heavy legions punish flesh-tagged defenders
+  (x1.25), melee punishes bone-tagged. Terrain favors defenders everywhere
+  except plains.
+* Enemy heroes are the primary threat spike: they strip a percentage of your
+  remaining troops each tick regardless of how well attrition is going, and
+  cannot be killed by normal attrition alone — their Resolve pool must be
+  drained.
+* Heroes you force to flee come back stronger later ("nemesis" ramp), and are
+  guaranteed to return on the final target.
+* Crushing victories (high power ratio) also raise the chance enemy heroes die
+  permanently instead of escaping.
+* Prestige is the only permanent power multiplier (+10%/count); everything else
+  resets.
+
+VERIFICATION HARNESSES (run with: npx tsx <script>):
+* scripts/smoke-hero-tuning.ts — Hero design gates. S8a/S8b/S8c pin the
+  chaff-vs-hero lethality ladder (100 / 1k / 10k Wraiths vs one Hero),
+  S8d pins the per-resolution tier contrast (Skeletons outlast Wraiths under
+  equal fire), S8e prints the crossover curve, S9 pins armor-resistance
+  wiring in a hero field (exact x0.75 scaling at full armored share + the
+  clamp-regime flip it causes near parity).
+* scripts/smoke-flavor.ts — flavor, fate, threat, last-stand and grudge
+  checks (H1-H5, R1-R5) plus battle-log beat ordering.
+* scripts/smoke.mjs — jsdom E2E over the built game: progression, Age
+  advance, save/reload persistence, completion state.
+
+================================================================================
+END OF REPORT — generated from source analysis of src/systems/combat/*,
+src/systems/legion/*, src/systems/prestige/*, src/systems/buildings/*,
+src/systems/clicker/*, and src/main.ts. No code was modified.
+================================================================================

@@ -1,0 +1,52 @@
+# Custom Hero Names
+# Add one name per line. Lines starting with # are comments.
+# Blank lines are ignored.
+# Names are merged (case-insensitive dedup) with the built-in pool.
+# Refresh the game after editing to see new names.
+
+# Example names (feel free to replace/add your own):
+Aldric
+Brigid
+Cedric
+Dierna
+Eamon
+Fiona
+Gareth
+Hilde
+Ivor
+Jora
+Kael
+Lyra
+Marian
+Niall
+Orla
+Phelan
+Quinn
+Roisin
+Saoirse
+Tadhg
+Una
+Ailis
+Blaithin
+Caoimhe
+Daire
+Eireann
+Fiachra
+Grainne
+Aodhan
+Blathnaid
+Cian
+Deirdre
+Eoghan
+Fionn
+Ailbhe
+Liath
+Dengeki
+Rivas
+Ndk
+Sean Earugh
+Sesnara
+Yves
+Loi
+Katsu
+Kaizen

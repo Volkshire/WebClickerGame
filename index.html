@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Endless Souls — a dark-fantasy incremental browser game: harvest souls, raise an undead legion, and conquer ten Ages of civilization."
+    />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👻</text></svg>" />
+    <title>Endless Souls</title>
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <!-- ======== PERSISTENT SOUL CLICKER HEADER (visible on every tab) ======== -->
+      <header class="game-header screen" aria-label="Soul Clicker">
+        <button
+          type="button"
+          class="trophy-button"
+          data-achievements="toggle"
+          title="Achievements"
+          aria-label="Toggle achievements panel"
+          aria-controls="achievements-panel"
+          aria-expanded="false"
+        >
+          🏆
+        </button>
+
+        <div class="header-core">
+          <div class="header-brand">
+            <h1 class="screen-title">Endless Souls</h1>
+            <p class="screen-subtitle">Soul Clicker</p>
+          </div>
+
+          <div class="header-counter">
+            <p class="souls-counter" aria-live="polite"><span data-clicker="souls">0</span> Souls</p>
+            <p class="stats-subline">
+              +<span data-clicker="per-click">1</span>/click ·
+              +<span data-clicker="per-second">0</span>/sec ·
+              <span data-clicker="total-clicks">0</span> clicks
+            </p>
+            <p class="offline-toast" data-clicker="offline-toast" hidden></p>
+          </div>
+
+          <div class="harvest-anchor">
+            <button class="harvest-button" type="button" data-clicker="harvest">HARVEST SOUL</button>
+          </div>
+        </div>
+      </header>
+
+      <!-- ======== PERSISTENT NAVIGATION ======== -->
+      <nav class="tab-bar" role="tablist" aria-label="Game sections">
+        <button type="button" class="tab-button" role="tab" data-tab="souls" aria-selected="true">Souls</button>
+        <button type="button" class="tab-button" role="tab" data-tab="legion" aria-selected="false" hidden>Legion</button>
+        <button type="button" class="tab-button" role="tab" data-tab="world" aria-selected="false" hidden>World</button>
+        <button type="button" class="tab-button" role="tab" data-tab="crypt" aria-selected="false" hidden>⚰️ Crypt</button>
+      </nav>
+
+      <main class="tab-panes">
+        <!-- ======== SOULS DASHBOARD ======== -->
+        <section data-tab-pane="souls" class="pane" aria-label="Souls">
+          <div class="dashboard">
+            <section class="dash-col dash-left">
+              <div class="panel">
+                <h2 class="panel-title">⚡ Soul Upgrades</h2>
+                <div class="item-list" data-clicker="upgrades"></div>
+              </div>
+            </section>
+
+            <section class="dash-col dash-center">
+              <div class="panel panel-emphasis">
+                <h2 class="panel-title">Current Production</h2>
+                <div class="stat-grid">
+                  <div class="stat-row">
+                    <span class="stat-label">Current Souls</span>
+                    <span class="stat-value accent" data-clicker="stats-souls">0</span>
+                  </div>
+                  <div class="stat-row">
+                    <span class="stat-label">Souls per click</span>
+                    <span class="stat-value" data-clicker="stats-click">1</span>
+                  </div>
+                  <div class="stat-row harvest-bonus-row" data-clicker="harvest-bonus" hidden>
+                    <span class="stat-label">Harvest bonus</span>
+                    <span class="stat-value" data-clicker="harvest-bonus-text"></span>
+                  </div>
+                  <div class="stat-row">
+                    <span class="stat-label">Souls per second</span>
+                    <span class="stat-value" data-clicker="stats-sec">0</span>
+                  </div>
+                </div>
+
+                <h3 class="panel-subtitle">Production Breakdown</h3>
+                <ul class="breakdown-list" data-clicker="production"></ul>
+              </div>
+            </section>
+
+            <section class="dash-col dash-right">
+              <div class="panel">
+                <h2 class="panel-title">⏳ Soul Generators</h2>
+                <div class="item-list" data-clicker="generators"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <!-- ======== LEGION DASHBOARD ======== -->
+        <section id="legion-panel" data-tab-pane="legion" class="pane" hidden aria-label="Undead Legion">
+          <div class="dashboard">
+            <section class="dash-col dash-left">
+              <div class="panel">
+                <h2 class="panel-title">☠️ Undead Roster</h2>
+                <p class="stats-subline" data-legion="resources"></p>
+                <div class="item-list" data-legion="units"></div>
+              </div>
+            </section>
+
+            <section class="dash-col dash-center">
+              <div class="panel panel-emphasis">
+                <h2 class="panel-title">Your Legion</h2>
+                <p class="stats-subline" data-legion="summary"></p>
+                <div class="stat-grid">
+                  <div class="stat-row">
+                    <span class="stat-label">Total Undead</span>
+                    <span class="stat-value accent" data-legion-stats="total">0</span>
+                  </div>
+                  <div class="stat-row">
+                    <span class="stat-label">Army Power</span>
+                    <span class="stat-value accent" data-legion-stats="power">0</span>
+                  </div>
+                </div>
+
+                <h3 class="panel-subtitle">By Essence</h3>
+                <ul class="breakdown-list" data-legion-stats="essence"></ul>
+
+                <h3 class="panel-subtitle">By Discipline</h3>
+                <ul class="breakdown-list" data-legion-stats="discipline"></ul>
+
+                <h3 class="panel-subtitle">By Unit</h3>
+                <ul class="breakdown-list" data-legion-stats="units"></ul>
+              </div>
+            </section>
+
+            <section class="dash-col dash-right">
+              <div class="panel">
+                <h2 class="panel-title">⚔ Next Battle</h2>
+                <p class="stats-subline">Your Army Power: <span data-combat="army-power"></span></p>
+
+                <div data-combat="controls">
+                  <div class="deploy-row" role="group" aria-label="Deployment percentage">
+                    <button type="button" class="deploy-button" data-combat-deploy></button>
+                    <button type="button" class="deploy-button" data-combat-deploy></button>
+                    <button type="button" class="deploy-button" data-combat-deploy></button>
+                    <button type="button" class="deploy-button" data-combat-deploy></button>
+                  </div>
+
+                  <p class="stats-subline" data-combat="deploy-preview"></p>
+
+                  <button type="button" class="attack-button" data-combat="attack" disabled>ATTACK</button>
+
+                  <label class="world-switch">
+                    <input type="checkbox" data-combat="world-switch" checked />
+                    <span>Switch to World tab on attack</span>
+                  </label>
+                </div>
+
+                <button type="button" class="advance-button" data-combat="advance-age" hidden></button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <!-- ======== WORLD DASHBOARD ======== -->
+        <section id="world-panel" data-tab-pane="world" class="pane" hidden aria-label="World">
+          <div class="dashboard">
+            <section class="dash-col dash-left">
+              <div class="panel">
+                <h2 class="panel-title">🗺 Campaign Progression</h2>
+                <p class="stats-subline" data-combat="progress">Campaign 0 / 10 cleared</p>
+                <ol class="progression-list" data-combat="progression"></ol>
+                <p class="progression-complete-line" data-combat="progression-complete" hidden>
+                  Campaign Complete
+                </p>
+              </div>
+            </section>
+
+            <section class="dash-col dash-center">
+              <div class="panel panel-emphasis">
+                <h2 class="panel-title">🔥 Battle Information</h2>
+
+                <div class="battle-view" data-combat="battle-view" hidden>
+                  <p class="stats-subline" data-combat="battle-status"></p>
+
+                  <div class="power-bars">
+                    <div class="power-bar-row">
+                      <span class="power-bar-label">Your Legion</span>
+                      <div class="battle-bar" role="progressbar" aria-label="Attacker power">
+                        <div class="battle-bar-fill is-attacker" data-combat="bar-attacker"></div>
+                      </div>
+                      <span class="power-bar-value" data-combat="power-attacker"></span>
+                    </div>
+                    <div class="power-bar-row">
+                      <span class="power-bar-label">Enemy</span>
+                      <div class="battle-bar" role="progressbar" aria-label="Defender power">
+                        <div class="battle-bar-fill is-defender" data-combat="bar-defender"></div>
+                      </div>
+                      <span class="power-bar-value" data-combat="power-defender"></span>
+                    </div>
+                  </div>
+
+                  <p class="stats-subline" data-combat="battle-forces"></p>
+
+                  <p class="hero-banner" data-combat="hero-banner" hidden></p>
+
+                  <ul class="battle-log" data-combat="battle-log"></ul>
+                </div>
+
+                <div class="battle-idle" data-combat="battle-idle" hidden>
+                  <p class="idle-subline">No ongoing battle</p>
+                  <p class="idle-target-name" data-combat="idle-target-name"></p>
+                  <p class="idle-target-power" data-combat="idle-target-power"></p>
+                  <p class="idle-target-terrain" data-combat="idle-target-terrain"></p>
+                  <p class="idle-target-loot" data-combat="idle-target-loot"></p>
+                  <ul class="target-army" data-combat="idle-enemy-army"></ul>
+                  <p class="target-description" data-combat="idle-description" hidden></p>
+
+                  <div class="idle-controls" data-combat="idle-controls">
+                    <div class="deploy-row" role="group" aria-label="Deployment percentage">
+                      <button type="button" class="deploy-button" data-combat-deploy-idle></button>
+                      <button type="button" class="deploy-button" data-combat-deploy-idle></button>
+                      <button type="button" class="deploy-button" data-combat-deploy-idle></button>
+                      <button type="button" class="deploy-button" data-combat-deploy-idle></button>
+                    </div>
+                    <p class="stats-subline" data-combat="idle-deploy-preview"></p>
+                    <button type="button" class="attack-button" data-combat="idle-attack" disabled>ATTACK</button>
+                  </div>
+                </div>
+
+                <div class="battle-result" data-combat="result-view" hidden>
+                  <p class="outcome" data-combat="outcome"></p>
+                  <p class="stats-subline" data-combat="survivors"></p>
+                  <p class="stats-subline" data-combat="casualties"></p>
+                  <p class="stats-subline" data-combat="enemy-casualties"></p>
+                  <p class="stats-subline loot-line" data-combat="loot-gained" hidden></p>
+                  <p class="stats-subline hero-line" data-combat="hero-outcome" hidden></p>
+                  <p class="defeat-cause" data-combat="defeat-cause" hidden></p>
+
+                  <div class="post-battle-actions">
+                    <button type="button" class="return-button" data-combat="return-legion">
+                      ⬅ Return to Legion
+                    </button>
+                    <button type="button" class="continue-button" data-combat="continue-attack">
+                      ⚔ Continue Attack
+                    </button>
+                    <button type="button" class="advance-button" data-combat="advance-result" hidden></button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="dash-col dash-right">
+              <div class="panel">
+                <h2 class="panel-title">Current Target</h2>
+                <p class="stats-subline" data-combat="era"></p>
+
+                <div class="era-conquered" data-combat="era-conquered" hidden>
+                  <p class="ec-title">The Age Has Fallen</p>
+                  <p class="ec-copy">
+                    Every stronghold of this age lies in ruin. Advance to march on the next.
+                  </p>
+                  <button type="button" class="advance-button" data-combat="advance-world" hidden></button>
+                </div>
+
+                <div class="current-target" data-combat="current-target" hidden>
+                  <p class="target-name" data-combat="target-name"></p>
+                  <p class="target-enemy-power" data-combat="enemy-power"></p>
+                  <p class="target-terrain" data-combat="terrain"></p>
+                  <p class="target-loot" data-combat="loot"></p>
+                  <ul class="target-army" data-combat="enemy-army"></ul>
+                  <p class="target-description" data-combat="description" hidden></p>
+                </div>
+
+                <div class="campaign-complete" data-combat="campaign-complete" hidden>
+                  <p class="cc-title">Campaign Complete</p>
+                  <p class="cc-subtitle">All Ages Have Fallen</p>
+                  <p class="cc-copy">
+                    You have conquered every known settlement of every age.
+                  </p>
+                  <div class="cc-divider"></div>
+                  <p class="cc-label">Final Target</p>
+                  <p class="cc-final-name" data-combat="final-target-name"></p>
+                  <p class="cc-status">Status · Conquered</p>
+                  <div class="cc-divider"></div>
+                  <p class="cc-label">Next Age</p>
+                  <p class="cc-value">None remain — the world is yours</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <!-- ======== CRYPT DASHBOARD ======== -->
+        <section id="crypt-panel" data-tab-pane="crypt" class="pane" hidden aria-label="Crypt">
+          <div class="dashboard">
+            <section class="dash-col dash-left">
+              <div class="panel">
+                <h2 class="panel-title">💀 Ascension</h2>
+                <p class="stats-subline">End this run. Keep the power forever.</p>
+                <p class="stats-subline" data-prestige="badge-hint" hidden>
+                  Conquer your first Age to open the Gate.
+                </p>
+                <button
+                  type="button"
+                  class="prestige-badge"
+                  data-prestige="badge"
+                  hidden
+                  aria-haspopup="dialog"
+                  title="Prestige"
+                >
+                  💀 ×<span data-prestige="badge-count">0</span> ·
+                  <span data-prestige="badge-bonus">+0%</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="dash-col dash-center">
+              <div class="panel panel-emphasis">
+                <h2 class="panel-title">⚰️ Crypt Buildings</h2>
+                <p class="stats-subline" data-buildings="stocks"></p>
+                <div class="item-list" data-buildings="list"></div>
+
+                <h3 class="panel-subtitle">Relics</h3>
+                <p class="stats-subline">Relics arrive in a future age…</p>
+                <div class="relic-grid" aria-hidden="true">
+                  <div class="relic-tile">???</div>
+                  <div class="relic-tile">???</div>
+                  <div class="relic-tile">???</div>
+                  <div class="relic-tile">???</div>
+                </div>
+              </div>
+            </section>
+
+            <section class="dash-col dash-right">
+              <div class="panel panel-locked" data-necromancy="panel">
+                <h2 class="panel-title">🔮 Necromancy</h2>
+                <p class="stats-subline" data-necromancy="locked">
+                  Locked — the dead share their secrets after four conquests.
+                </p>
+                <div data-necromancy="content" hidden>
+                  <p class="stats-subline">
+                    Dark research bought with Bone, Iron and Souls. Resets on Prestige.
+                  </p>
+                  <div class="item-list" data-necromancy="list"></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <!-- ======== ACHIEVEMENTS OVERLAY (trophy button, covers gameplay area) ======== -->
+      <section
+        id="achievements-panel"
+        class="overlay-panel"
+        data-achievements="panel"
+        hidden
+        aria-label="Achievements"
+      >
+        <div class="overlay-panel-inner">
+          <div class="overlay-panel-header">
+            <h2 class="overlay-panel-title">🏆 Achievements</h2>
+            <p class="overlay-panel-summary" data-achievements="summary">0 / 0 completed</p>
+            <button
+              type="button"
+              class="overlay-close"
+              data-achievements="close"
+              aria-label="Close achievements panel"
+            >
+              ✕
+            </button>
+          </div>
+          <div class="achievement-list" data-achievements="list"></div>
+        </div>
+      </section>
+
+      <section
+        id="prestige-modal"
+        class="modal-overlay"
+        data-prestige="modal"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-label="Prestige"
+      >
+        <div class="modal-card">
+          <button
+            type="button"
+            class="overlay-close prestige-close"
+            data-prestige="close"
+            aria-label="Close Prestige dialog"
+          >
+            ✕
+          </button>
+          <h2 class="section-title">💀 Prestige</h2>
+
+          <p class="stats-subline">
+            Prestiges: <span data-prestige="count">0</span>
+          </p>
+          <p class="stats-subline">
+            Permanent bonus: <span data-prestige="bonus">+0%</span> combat damage (from shop)
+          </p>
+          <p class="stats-subline modal-pending" data-prestige="pending" hidden></p>
+
+          <p class="modal-heading">Will be reset</p>
+          <p class="stats-subline">
+            Souls, Soul upgrades, Soul generators, Bone, Flesh, Iron, your entire Undead Legion,
+            all world progress and every Crypt building.
+          </p>
+
+          <p class="modal-heading">Kept forever</p>
+          <p class="stats-subline">
+            Your Prestige count and all purchased Prestige Shop items.
+          </p>
+
+          <p class="stats-subline modal-availability" data-prestige="availability"></p>
+          <p class="stats-subline modal-failure" data-prestige="failure" hidden></p>
+
+          <div class="modal-actions">
+            <button type="button" class="attack-button" data-prestige="confirm" disabled>
+              CONFIRM PRESTIGE
+            </button>
+            <button type="button" class="deploy-button" data-prestige="cancel">Cancel</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======== PRESTIGE SHOP (opens from the debug window post-Prestige) ======== -->
+      <section
+        id="prestige-shop-modal"
+        class="modal-overlay"
+        data-shop="modal"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-label="Prestige Shop"
+      >
+        <div class="modal-card prestige-shop-card">
+          <div class="shop-header">
+            <h2 class="section-title">👑 Prestige Shop</h2>
+            <button
+              type="button"
+              class="overlay-close"
+              data-shop="close"
+              aria-label="Close Prestige Shop"
+            >
+              ✕
+            </button>
+          </div>
+          <p class="shop-points-line">
+            Prestige Points: <span class="shop-points" data-shop="points">0</span>
+          </p>
+          <p class="stats-subline">
+            Spend Prestige Points on permanent boons. They survive every reset.
+          </p>
+          <div class="shop-grid" data-shop="list"></div>
+        </div>
+      </section>
+
+      <!-- ======== DEBUG POPOUT (developer-only) ========
+           Hidden from players by default. Developers open it with
+           Ctrl+Shift+D anywhere in the game, or boot once with ?debug=1
+           (unlocks the 🐞 toggle below for the current tab session). -->
+      <section id="diagnostics" class="diagnostics" hidden>
+        <p class="diagnostics-title">Diagnostics</p>
+
+        <ul class="status-list">
+          <li class="status-item" data-status="typescript">TypeScript</li>
+          <li class="status-item" data-status="vite">Vite</li>
+          <li class="status-item" data-status="loop">Update loop</li>
+        </ul>
+
+        <p class="status-detail"></p>
+
+        <p class="stats-subline"><strong>Save data</strong> — move progress between devices or recover from a wipe.</p>
+
+        <div class="backup-actions">
+          <button type="button" id="save-export" class="backup-button">⬇ Export Save</button>
+          <button type="button" id="save-import" class="backup-button">⬆ Import Save</button>
+          <input type="file" id="save-import-file" accept="application/json,.json" hidden />
+        </div>
+
+        <p class="stats-subline"><strong>Debug tools</strong></p>
+
+        <div class="backup-actions">
+          <button
+            type="button"
+            id="debug-prestige"
+            class="backup-button"
+            disabled
+            title="Reach the end of the world to unlock"
+          >
+            ⚔ Prestige
+          </button>
+          <button
+            type="button"
+            id="debug-prestige-shop"
+            class="backup-button"
+            title="Open the Prestige Shop"
+          >
+            👑 Prestige Shop
+          </button>
+        </div>
+
+        <div class="backup-actions">
+          <button type="button" id="save-total-reset" class="backup-button danger-button">
+            ☠ TOTAL RESET
+          </button>
+        </div>
+      </section>
+
+      <!-- 🐞 toggle: hidden for players; revealed by dev access (see above). -->
+      <button
+        id="diagnostics-toggle"
+        type="button"
+        class="diagnostics-toggle"
+        hidden
+        title="Toggle diagnostics"
+        aria-label="Toggle diagnostics"
+        aria-expanded="false"
+        aria-controls="diagnostics"
+      >
+        🐞
+      </button>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

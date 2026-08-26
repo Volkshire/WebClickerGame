@@ -1,0 +1,4 @@
+1. Check duplicating hero bug found in last stage of an era. It duplicates on defeat? 
+2. Fix cant access prestige screen from debug.
+3. Add more undead units after death knights
+4. Add more variety of hero skills

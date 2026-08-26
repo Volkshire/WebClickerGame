@@ -1,0 +1,21 @@
+{
+  "name": "webclickergame",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Endless Souls — a dark-fantasy incremental browser game: harvest souls, raise an undead legion, conquer ten Ages.",
+  "license": "MIT",
+  "author": "Volkshire",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  }
+}
