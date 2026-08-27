@@ -16,8 +16,8 @@ interface UnitRow {
   amountButtons: HTMLButtonElement[];
 }
 
-const AMOUNTS = [1, 10, 1000, Number.POSITIVE_INFINITY] as const;
-const AMOUNT_LABELS = ['×1', '×10', '×1000', 'MAX'] as const;
+const AMOUNTS = [1, 10, 100, 1000, Number.POSITIVE_INFINITY] as const;
+const AMOUNT_LABELS = ['×1', '×10', '×100', '×1000', 'MAX'] as const;
 const DEFAULT_AMOUNT_INDEX = 0;
 
 const RESOURCE_ICONS: Record<ResourceId, string> = {
