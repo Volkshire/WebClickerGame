@@ -9,6 +9,7 @@ import type {
   CombatChangedPayload,
   CombatTargetView,
 } from './types';
+import { BuildingSystem } from '../buildings/BuildingSystem';
 
 const DEPLOY_PERCENTS = [0.25, 0.5, 0.75, 1] as const;
 const MOMENTUM_LABEL: Record<string, string> = {
@@ -65,8 +66,9 @@ export class CombatView {
   private readonly worldSwitchInput: HTMLInputElement;
 
   /** Enemy CP of the current target; drives the deploy-preview risk tint. */
-  private currentTargetEnemyPower = 0;
+private currentTargetEnemyPower = 0;
   private campaignComplete = false;
+  private buildings: BuildingSystem | null = null;
   /** Conquered-Age lull: advance buttons replace ATTACK / Continue Attack. */
   private eraConquered = false;
   private readonly progressionListEl: HTMLElement | null;
@@ -355,9 +357,13 @@ export class CombatView {
     this.returnLegionHandler = handler;
   }
 
-  /** Fires when the player presses an advance-to-next-Age button. */
+/** Fires when the player presses an advance-to-next-Age button. */
   onAdvanceAge(handler: () => void): void {
     this.advanceAgeHandler = handler;
+  }
+
+  setBuildings(buildingsSystem: BuildingSystem): void {
+    this.buildings = buildingsSystem;
   }
 
   render(payload: CombatChangedPayload, army: ArmyUnitGroup[]): void {
@@ -786,7 +792,7 @@ export class CombatView {
     this.idleAttackButton.disabled = deployedCount < 1;
   }
 
-  private renderResult(result: BattleResult): void {
+private renderResult(result: BattleResult): void {
     const victory = result.outcome === 'victory';
     this.outcomeLabel.textContent = victory ? 'VICTORY' : 'DEFEAT';
     this.outcomeLabel.classList.toggle('is-victory', victory);
@@ -800,7 +806,15 @@ export class CombatView {
 
     const loot = result.lootGained;
     const lootParts: string[] = [];
-    if (loot !== null) {
+    if (loot !== null && this.buildings !== null) {
+      for (const [resourceId, amount] of Object.entries(loot)) {
+        let gained = amount ?? 0;
+        if (resourceId === 'bone' && this.buildings.isBuilt('bone-sorting-house')) {
+          gained *= 2;
+        }
+        if (gained > 0) lootParts.push(`+${formatNumber(gained)} ${resourceId}`);
+      }
+    } else if (loot !== null) {
       if (loot.bone > 0) lootParts.push(`+${formatNumber(loot.bone)} Bone`);
       if (loot.flesh > 0) lootParts.push(`+${formatNumber(loot.flesh)} Flesh`);
       if (loot.iron > 0) lootParts.push(`+${formatNumber(loot.iron)} Iron`);

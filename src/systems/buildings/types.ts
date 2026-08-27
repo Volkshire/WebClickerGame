@@ -23,6 +23,8 @@ export interface BuildingViewRow {
   level: number;
   maxLevel: number;
   nextCosts: readonly BuildingCostEntry[];
+  /** False when the building's unlock requirement has not been met. */
+  unlocked: boolean;
 }
 
 export interface BuildingsChangedPayload {

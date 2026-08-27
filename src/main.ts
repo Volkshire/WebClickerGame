@@ -4,7 +4,7 @@ import type { UpdatePayload } from './core/Application';
 import { SaveManager, isSupportedSchemaVersion, SAVE_SCHEMA_VERSION, suspendPersistence } from './core/SaveManager';
 import { SessionGuard } from './core/SessionGuard';
 import { probeStorage, requestPersistentStorage } from './core/StorageHealth';
-import { commitImport, downloadSaveBackup, parseImport, wipeGameSaves } from './core/SaveBackup';
+import { PersistenceCoordinator, PROFILE_STORAGE_KEY } from './core/PersistenceCoordinator';
 import { AlertBanner } from './ui/AlertBanner';
 import { InitScreen } from './ui/InitScreen';
 import { ClickerSystem } from './systems/clicker/ClickerSystem';
@@ -41,6 +41,7 @@ import { CombatView } from './systems/combat/CombatView';
 import { CombatEvents } from './systems/combat/types';
 import type { BattleResult, CombatChangedPayload } from './systems/combat/types';
 import { BUILT_IN_HERO_NAMES, mergeNamesFile } from './systems/combat/heroNames';
+import type { HeroNamePools } from './systems/combat/heroNames';
 import { getAgeByIndex } from './systems/combat/world';
 import { TabController } from './ui/Tabs';
 import { BuildingSystem } from './systems/buildings/BuildingSystem';
@@ -117,8 +118,22 @@ const sessionGuard = new SessionGuard(
   },
 );
 
+// Systems keep their existing local save/readback contracts, but these
+// managers are memory-backed. PersistenceCoordinator writes their complete
+// snapshot as the application's single durable profile.
+const managedSaveOptions = { persistent: false };
+const clickerSaves = new SaveManager('webclickergame.clicker', onStorageWriteError, managedSaveOptions);
+const legionSaves = new SaveManager('webclickergame.legion', onStorageWriteError, managedSaveOptions);
+const resourceSaves = new SaveManager('webclickergame.resources', onStorageWriteError, managedSaveOptions);
+const prestigeSaves = new SaveManager('webclickergame.prestige', onStorageWriteError, managedSaveOptions);
+const achievementSaves = new SaveManager('webclickergame.achievements', onStorageWriteError, managedSaveOptions);
+const combatSaves = new SaveManager('webclickergame.combat', onStorageWriteError, managedSaveOptions);
+const buildingSaves = new SaveManager('webclickergame.buildings', onStorageWriteError, managedSaveOptions);
+const necromancySaves = new SaveManager('webclickergame.necromancy', onStorageWriteError, managedSaveOptions);
+const uiPrefs = new SaveManager('webclickergame.ui', onStorageWriteError, managedSaveOptions);
+
 const view = new ClickerView(appRoot);
-const clicker = new ClickerSystem(app.events, new SaveManager('webclickergame.clicker', onStorageWriteError), Date.now, {
+const clicker = new ClickerSystem(app.events, clickerSaves, Date.now, {
   // Permanent Prestige Shop boons flow into the economy through these
   // providers; the clicker system never knows the shop exists.
   // (Closures are lazy: `prestige` below is initialized before any read.)
@@ -129,22 +144,22 @@ const clicker = new ClickerSystem(app.events, new SaveManager('webclickergame.cl
 });
 
 const legionView = new LegionView(appRoot);
-const legion = new LegionSystem(app.events, new SaveManager('webclickergame.legion', onStorageWriteError));
+const legion = new LegionSystem(app.events, legionSaves);
 
-const resources = new ResourceSystem(app.events, new SaveManager('webclickergame.resources', onStorageWriteError));
+const resources = new ResourceSystem(app.events, resourceSaves);
 
 const prestigeView = new PrestigeView(appRoot);
-const prestige = new PrestigeSystem(app.events, new SaveManager('webclickergame.prestige', onStorageWriteError));
+const prestige = new PrestigeSystem(app.events, prestigeSaves);
 const prestigeShopView = new PrestigeShopView(appRoot);
 
 const achievementSystem = new AchievementSystem(
   app.events,
-  new SaveManager('webclickergame.achievements', onStorageWriteError),
+  achievementSaves,
 );
 const achievementView = new AchievementView(appRoot);
 
 const combatView = new CombatView(appRoot);
-const combat = new CombatSystem(app.events, new SaveManager('webclickergame.combat', onStorageWriteError), {
+const combat = new CombatSystem(app.events, combatSaves, {
   // Permanent Prestige bonuses flow into combat through this provider;
   // the combat system itself never knows Prestige exists.
   getAttackerModifier: () => prestige.effects.attackerDamageMultiplier,
@@ -158,8 +173,6 @@ const combat = new CombatSystem(app.events, new SaveManager('webclickergame.comb
 interface UiPrefsBlob {
   switchToWorldOnAttack?: boolean;
 }
-const uiPrefs = new SaveManager('webclickergame.ui', onStorageWriteError);
-
 function restoreUiPrefs(): void {
   const raw = uiPrefs.load();
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return;
@@ -169,11 +182,6 @@ function restoreUiPrefs(): void {
     combatView.setAutoSwitchToWorld(prefs.switchToWorldOnAttack);
   }
 }
-
-restoreUiPrefs();
-combatView.onAutoSwitchChange((enabled) => {
-  uiPrefs.save({ v: SAVE_SCHEMA_VERSION, switchToWorldOnAttack: enabled });
-});
 
 // Authoritative balances for building purchases; the BuildingSystem itself
 // never touches currency storage directly.
@@ -190,7 +198,7 @@ function currentStocks() {
   };
 }
 
-const buildings = new BuildingSystem(app.events, new SaveManager('webclickergame.buildings', onStorageWriteError), {
+const buildings = new BuildingSystem(app.events, buildingSaves, {
   transactor: {
     canAfford(costs) {
       return Object.entries(costs).every(
@@ -202,6 +210,8 @@ const buildings = new BuildingSystem(app.events, new SaveManager('webclickergame
     },
   },
 });
+
+combatView.setBuildings(buildings);
 
 function debitCosts(costs: BuildingCosts): boolean {
   for (const [currency, amount] of Object.entries(costs)) {
@@ -222,7 +232,7 @@ const buildingView = new BuildingView(appRoot);
 // balances are read from their owning systems at purchase time.
 const necromancy = new NecromancySystem(
   app.events,
-  new SaveManager('webclickergame.necromancy', onStorageWriteError),
+  necromancySaves,
   {
     transactor: {
       canAfford(costs) {
@@ -237,6 +247,40 @@ const necromancy = new NecromancySystem(
   },
 );
 const necromancyView = new NecromancyView(appRoot);
+
+const persistence = new PersistenceCoordinator(
+  new SaveManager(PROFILE_STORAGE_KEY, onStorageWriteError),
+  {
+    'webclickergame.clicker': clickerSaves,
+    'webclickergame.legion': legionSaves,
+    'webclickergame.resources': resourceSaves,
+    'webclickergame.prestige': prestigeSaves,
+    'webclickergame.achievements': achievementSaves,
+    'webclickergame.necromancy': necromancySaves,
+    'webclickergame.combat': combatSaves,
+    'webclickergame.buildings': buildingSaves,
+    'webclickergame.ui': uiPrefs,
+  },
+);
+
+for (const saves of [
+  clickerSaves,
+  legionSaves,
+  resourceSaves,
+  prestigeSaves,
+  achievementSaves,
+  combatSaves,
+  buildingSaves,
+  necromancySaves,
+  uiPrefs,
+]) {
+  saves.setMemorySaveListener(() => persistence.requestSave());
+}
+
+combatView.onAutoSwitchChange((enabled) => {
+  uiPrefs.save({ v: SAVE_SCHEMA_VERSION, switchToWorldOnAttack: enabled });
+  persistence.requestSave();
+});
 
 view.onBuyUpgrade((upgradeId) => {
   if (!clicker.buyUpgrade(upgradeId)) view.notifyDenied(upgradeId);
@@ -300,6 +344,12 @@ buildings.setAutoRaise((count) => {
   }
 });
 
+// Ossuary Auto-Raiser: raises Skeletons as production output — no per-unit
+// resource cost, same pattern as Ossuary bone / Fleshworks flesh income.
+buildings.setSkeletonAutoRaise((count) => {
+  legion.addUnits('skeleton', count);
+});
+
 // Ossuary bone income: whole units flow into the resource system, whose
 // Changed publish refreshes every dependent display.
 buildings.setProduction((amounts) => {
@@ -359,8 +409,12 @@ combatView.onAdvanceAge(() => {
 // wipe every run-scoped system. A failed/quietly-losing storage aborts the
 // whole action instead of destroying the run, and the modal explains why.
 prestigeView.onConfirm(() => {
+  // Prestige is one logical profile transition: do not persist the permanent
+  // counter between its verification and the run-state resets.
+  persistence.beginBatch();
   const result = prestige.perform();
   if (!result.ok) {
+    persistence.endBatch(false);
     prestigeView.showFailure(result.reason ?? 'not-available');
     return;
   }
@@ -387,6 +441,7 @@ prestigeView.onConfirm(() => {
   if (effectsAfterReset.startingSouls > 0) clicker.grantSouls(effectsAfterReset.startingSouls);
 
   prestigeShopView.open();
+  persistence.endBatch();
 });
 
 screen.markReady('typescript');
@@ -664,13 +719,13 @@ app.events.on<AchievementCompletedPayload>(AchievementEvents.Completed, ({ id, r
 
 // Optional flavor config: one name per line, # comments. A missing or broken
 // file is a silent fallback to the built-in pool — never a boot failure.
-async function loadHeroNames(): Promise<readonly string[]> {
+async function loadHeroNames(): Promise<HeroNamePools> {
   try {
     const response = await fetch('/hero-names.txt');
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return mergeNamesFile(await response.text());
   } catch {
-    return BUILT_IN_HERO_NAMES;
+    return { custom: [], generated: BUILT_IN_HERO_NAMES };
   }
 }
 
@@ -699,6 +754,10 @@ app.events.on<BattleResult>(CombatEvents.BattleEnded, (result) => {
     clicker.grantSouls(result.defenderCasualties);
   }
 });
+
+// Flush listeners registered by systems update their memory-backed blobs
+// first; this final listener then commits their one coherent profile.
+app.events.on(AppEvents.Flush, () => persistence.requestSave());
 
 /** One system's boot-restore outcome, for the failure summary. */
 interface RestoreOutcome {
@@ -735,6 +794,16 @@ function reportRestoreFailures(outcomes: RestoreOutcome[]): void {
 app.events.on(AppEvents.Start, async () => {
   screen.markReady('loop');
   sessionGuard.checkOnBoot();
+
+  // Hydrate every memory-backed system save before the existing, deliberately
+  // ordered system restores run. Legacy deployed blobs are accepted once and
+  // converted to the canonical profile after a successful restore.
+  persistence.beginBatch();
+  const profileRestore = persistence.restore();
+  restoreUiPrefs();
+  if (profileRestore.source === 'invalid') {
+    banner.show('profile-invalid', `Profile failed to load: ${profileRestore.problem}`, 'error');
+  }
 
   const outcomes: RestoreOutcome[] = [];
   // The permanent ledgers MUST restore before EVERYTHING else: every
@@ -783,6 +852,13 @@ app.events.on(AppEvents.Start, async () => {
   } catch (error) {
     console.error('Boot: claiming offline progress failed.', error);
   }
+
+  if (profileRestore.source === 'legacy') {
+    persistence.migrateLegacy();
+  }
+  // Canonical restores may have normalized a legacy system sub-blob during
+  // restore. Save that coherent final snapshot once, after all systems ran.
+  persistence.endBatch(profileRestore.source !== 'legacy');
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -812,7 +888,7 @@ const importButton = document.querySelector<HTMLButtonElement>('#save-import');
 const importFileInput = document.querySelector<HTMLInputElement>('#save-import-file');
 
 exportButton?.addEventListener('click', () => {
-  const filename = downloadSaveBackup();
+  const filename = persistence.downloadBackup();
   banner.show('backup-export', `Backup saved as ${filename}`, 'info', 6000);
 });
 
@@ -832,32 +908,31 @@ importFileInput?.addEventListener('change', async () => {
     return;
   }
 
-  const parsed = parseImport(text);
-  if (!parsed.ok) {
+  const parsed = persistence.parseImport(text);
+  if (!parsed.ok || parsed.profile === null) {
     banner.show('backup-import', `Import failed: ${parsed.problem}`, 'error');
     return;
   }
 
   // Ask BEFORE writing: a cancel must leave the current saves untouched.
   const confirmed = window.confirm(
-    `Restore ${parsed.entries.length} save section(s) from "${file.name}"?\n\n` +
+    `Restore the complete profile from "${file.name}"?\n\n` +
       'This OVERWRITES your current progress with the backup.',
   );
   if (!confirmed) return;
 
-  const summary = commitImport(parsed.entries);
-  if (!summary.ok) {
+  if (!persistence.commitImport(parsed.profile)) {
     banner.show('backup-import', 'Import failed: storage refused the writes.', 'error');
     return;
   }
 
-  // The imported blobs are now authoritative. Block the unload cascade
+  // The imported canonical profile is now authoritative. Block the unload cascade
   // (Flush/Stop saves) from overwriting them with this session's stale
   // state, then reload so the normal boot-restore path takes over.
   suspendPersistence();
   banner.show(
     'backup-import',
-    `Restored ${summary.restoredKeys.length} save section(s). Reloading…`,
+    'Restored the complete profile. Reloading…',
     'info',
     6000,
   );
@@ -903,7 +978,7 @@ totalResetButton?.addEventListener('click', () => {
   // resurrecting the just-wiped keys with this session's stale state.
   suspendPersistence();
 
-  const removed = wipeGameSaves();
+  const removed = persistence.reset();
   banner.show(
     'backup-reset',
     `Total reset: ${removed.length} save section(s) wiped. Reloading…`,

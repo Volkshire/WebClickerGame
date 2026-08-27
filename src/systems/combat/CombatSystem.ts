@@ -23,6 +23,7 @@ import type {
 import { rollHeroFates as resolveHeroFates } from './heroFates';
 import { pickUnique } from './heroNames';
 import { NameDeck } from './heroNames';
+import type { HeroNamePools } from './heroNames';
 import { CombatEvents } from './types';
 import type {
   ActiveBattleView,
@@ -72,8 +73,8 @@ interface WorldBlob {
   migratedFromLegacy?: boolean;
   /** Heroes that fled mid-battle and are owed a return in later targets. */
   fledHeroes?: { name: string; fledOrder: number }[];
-  /** Remaining hero-name deck order (shuffle-bag persistence). */
-  heroDeck?: string[];
+  /** Remaining hero-name deck order (shuffle-bag persistence). Legacy flat array or new split format. */
+  heroDeck?: string[] | { custom: string[]; generated: string[]; recent?: string[] };
   /** Heroes that survived failed assaults, keyed by target id. */
   survivingDefenders?: Record<string, string[]>;
 }
@@ -203,9 +204,27 @@ function parseWorldBlob(raw: unknown): WorldBlob | null {
   }
 
   const heroDeck = record['heroDeck'];
-  const parsedHeroDeck = Array.isArray(heroDeck)
-    ? heroDeck.filter((n): n is string => typeof n === 'string' && n.length > 0)
-    : undefined;
+  let parsedHeroDeck: { custom: string[]; generated: string[]; recent?: string[] } | string[] | undefined;
+  if (Array.isArray(heroDeck)) {
+    // Legacy flat array format — treat as generated pool order.
+    const flat = heroDeck.filter((n): n is string => typeof n === 'string' && n.length > 0);
+    if (flat.length > 0) parsedHeroDeck = flat;
+  } else if (heroDeck !== null && typeof heroDeck === 'object' && !Array.isArray(heroDeck)) {
+    // New split format: { custom, generated, recent? }
+    const obj = heroDeck as Record<string, unknown>;
+    const custom = Array.isArray(obj['custom'])
+      ? (obj['custom'] as unknown[]).filter((n): n is string => typeof n === 'string' && n.length > 0)
+      : [];
+    const generated = Array.isArray(obj['generated'])
+      ? (obj['generated'] as unknown[]).filter((n): n is string => typeof n === 'string' && n.length > 0)
+      : [];
+    const recent = Array.isArray(obj['recent'])
+      ? (obj['recent'] as unknown[]).filter((n): n is string => typeof n === 'string' && n.length > 0)
+      : undefined;
+    if (custom.length > 0 || generated.length > 0) {
+      parsedHeroDeck = { custom, generated, recent };
+    }
+  }
 
   // Standing-defender rosters: targetId -> Hero names, parsed leniently so
   // a corrupt entry can only drop one roster — never break the boot.
@@ -226,7 +245,7 @@ function parseWorldBlob(raw: unknown): WorldBlob | null {
     clearedInAge: progress.clearedInAge,
     migratedFromLegacy: typeof record['ageId'] !== 'string',
     fledHeroes: parsedFledHeroes,
-    ...(parsedHeroDeck !== undefined ? { heroDeck: parsedHeroDeck } : {}),
+    ...(parsedHeroDeck !== undefined ? { heroDeck: parsedHeroDeck as WorldBlob['heroDeck'] } : {}),
     ...(survivingDefenders !== undefined ? { survivingDefenders } : {}),
   };
 }
@@ -298,10 +317,13 @@ export class CombatSystem {
   private readonly isZombiePlagueActive: (() => boolean) | null;
   private readonly rng: () => number;
   private heroNames: readonly string[] = [];
-  /** Shuffle-bag over `heroNames`; rebuilt lazily, persisted across reloads. */
+  private customNamePool: readonly string[] = [];
+  private generatedNamePool: readonly string[] = [];
+  /** Shuffle-bag over hero name pools; rebuilt lazily, persisted across reloads. */
   private nameDeck: NameDeck | null = null;
-  private heroNamePool: readonly string[] = [];
-  private pendingDeckOrder: readonly string[] | undefined;
+  private pendingDeckOrder:
+    | { custom: readonly string[]; generated: readonly string[]; recent?: readonly string[] }
+    | undefined;
   private simulation: BattleSimulation | null = null;
   private deployment: DeployedGroup[] | null = null;
   private lastResult: BattleResult | null = null;
@@ -395,24 +417,25 @@ export class CombatSystem {
   }
 
   /**
-   * Installs the hero name pool (built-ins merged with hero-names.txt).
+   * Installs the hero name pools (custom from hero-names.txt, generated built-ins).
    * Loaded asynchronously at boot, before the first battle can start.
    */
-  setHeroNames(pool: readonly string[]): void {
-    this.heroNames = pool;
-    this.heroNamePool = pool;
-    this.nameDeck = new NameDeck(pool, this.pendingDeckOrder);
+  setHeroNames(pools: HeroNamePools): void {
+    this.customNamePool = pools.custom;
+    this.generatedNamePool = pools.generated;
+    this.heroNames = [...pools.custom, ...pools.generated];
+    this.nameDeck = new NameDeck(pools.custom, pools.generated, this.pendingDeckOrder);
     this.pendingDeckOrder = undefined;
   }
 
   /**
-   * Draws the next fresh hero name from the shuffle-bag, excluding anything
-   * already claimed (field heroes, grudge ledger). Falls back to uniform
-   * picking when no pool/deck exists yet.
+   * Draws the next fresh hero name from the weighted shuffle-bag, excluding
+   * anything already claimed (field heroes, grudge ledger). Falls back to
+   * uniform picking when no pool/deck exists yet.
    */
   private drawHeroName(excluded: ReadonlySet<string>): string | undefined {
-    if (this.nameDeck === null && this.heroNamePool.length > 0) {
-      this.nameDeck = new NameDeck(this.heroNamePool);
+    if (this.nameDeck === null && this.heroNames.length > 0) {
+      this.nameDeck = new NameDeck(this.customNamePool, this.generatedNamePool);
     }
     return this.nameDeck?.draw(excluded, this.rng);
   }
@@ -445,10 +468,24 @@ export class CombatSystem {
       // Deck depletion survives reloads; if the pool isn't installed yet,
       // setHeroNames applies it on arrival.
       if (parsed.heroDeck !== undefined) {
-        if (this.heroNamePool.length > 0) {
-          this.nameDeck = new NameDeck(this.heroNamePool, parsed.heroDeck);
+        const deck = parsed.heroDeck;
+        if (Array.isArray(deck)) {
+          // Legacy flat array: treat as generated pool order.
+          if (this.heroNames.length > 0) {
+            this.nameDeck = new NameDeck(this.customNamePool, this.generatedNamePool, {
+              custom: [],
+              generated: deck,
+            });
+          } else {
+            this.pendingDeckOrder = { custom: [], generated: deck };
+          }
         } else {
-          this.pendingDeckOrder = parsed.heroDeck;
+          // New split format.
+          if (this.heroNames.length > 0) {
+            this.nameDeck = new NameDeck(this.customNamePool, this.generatedNamePool, deck);
+          } else {
+            this.pendingDeckOrder = deck;
+          }
         }
       }
       // A saved battle resolves instantly on reload; live battles do not

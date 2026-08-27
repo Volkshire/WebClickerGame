@@ -24,9 +24,15 @@ interface LegionSaveBlob {
   zombies?: number;
   golems?: number;
   knights?: number;
+  dreadChampions?: number;
+  soulReapers?: number;
+  dreadLords?: number;
   zombieUnlocked?: boolean;
   golemUnlocked?: boolean;
   knightUnlocked?: boolean;
+  dreadChampionUnlocked?: boolean;
+  soulReaperUnlocked?: boolean;
+  dreadLordUnlocked?: boolean;
 }
 
 /** Legacy count field names and the unit ids they map onto. */
@@ -36,12 +42,18 @@ const LEGACY_COUNT_KEYS = {
   zombies: 'zombie',
   golems: 'flesh_golem',
   knights: 'death_knight',
+  dreadChampions: 'dread_champion',
+  soulReapers: 'soul_reaper',
+  dreadLords: 'dread_lord',
 } as const;
 
 const LEGACY_UNLOCK_KEYS = {
   zombieUnlocked: 'zombie',
   golemUnlocked: 'flesh_golem',
   knightUnlocked: 'death_knight',
+  dreadChampionUnlocked: 'dread_champion',
+  soulReaperUnlocked: 'soul_reaper',
+  dreadLordUnlocked: 'dread_lord',
 } as const;
 
 function freshState(): LegionState {
@@ -291,9 +303,15 @@ export class LegionSystem {
       zombies: this.countOf('zombie'),
       golems: this.countOf('flesh_golem'),
       knights: this.countOf('death_knight'),
+      dreadChampions: this.countOf('dread_champion'),
+      soulReapers: this.countOf('soul_reaper'),
+      dreadLords: this.countOf('dread_lord'),
       zombieUnlocked: this.state.unlockedUnits['zombie'] === true,
       golemUnlocked: this.state.unlockedUnits['flesh_golem'] === true,
       knightUnlocked: this.state.unlockedUnits['death_knight'] === true,
+      dreadChampionUnlocked: this.state.unlockedUnits['dread_champion'] === true,
+      soulReaperUnlocked: this.state.unlockedUnits['soul_reaper'] === true,
+      dreadLordUnlocked: this.state.unlockedUnits['dread_lord'] === true,
     };
   }
 

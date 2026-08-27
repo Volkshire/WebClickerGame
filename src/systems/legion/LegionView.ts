@@ -215,6 +215,7 @@ export class LegionView {
       bone: 'Bone',
       flesh: 'Flesh',
       armored: 'Armored',
+      soul: 'Soul',
     };
     this.renderBreakdown(
       this.essenceListEl,

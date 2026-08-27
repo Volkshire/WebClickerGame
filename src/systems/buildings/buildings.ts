@@ -5,6 +5,14 @@ export type BuildingCurrency = 'souls' | ResourceId;
 
 export type BuildingCosts = Partial<Record<BuildingCurrency, number>>;
 
+/** Data-driven unlock requirement: the building is hidden until another building reaches minLevel. */
+export interface BuildingUnlockRequirement {
+  /** The building ID that must meet the requirement. */
+  buildingId: string;
+  /** The minimum level required on that building. */
+  minLevel: number;
+}
+
 export interface BuildingDefinition {
   id: string;
   name: string;
@@ -20,6 +28,8 @@ export interface BuildingDefinition {
   growthRate: number;
   /** Human-readable current effect for the owned level ('' before first buy). */
   effectText: (level: number) => string;
+  /** Optional: building is hidden until another building reaches minLevel. */
+  unlockRequirement?: BuildingUnlockRequirement;
 }
 
 export const AUTO_RAISE_INTERVAL_SECONDS = 5;
@@ -83,6 +93,28 @@ export const BUILDINGS: readonly BuildingDefinition[] = [
     baseCosts: { iron: 5000 },
     growthRate: 1,
     effectText: (level) => (level > 0 ? 'Bone loot doubled after battles' : ''),
+  },
+  {
+    id: 'fleshworks',
+    name: 'Fleshworks',
+    description: '+1 Flesh per second per level.',
+    flavor: 'The flesh weaves itself, given time and enough corpses.',
+    maxLevel: 5,
+    baseCosts: { souls: 2000, bone: 500 },
+    growthRate: 1.5,
+    effectText: (level) => (level > 0 ? `+${level} Flesh per second` : ''),
+  },
+  {
+    id: 'ossuary-auto-raiser',
+    name: 'Ossuary Auto-Raiser',
+    description: 'Automatically raises Skeletons every 5 seconds.',
+    flavor: 'The bones rise of their own accord when the Ossuary is full.',
+    maxLevel: 10,
+    baseCosts: { souls: 3000, bone: 1000, iron: 500 },
+    growthRate: 1.3,
+    effectText: (level) =>
+      level > 0 ? `Raises up to ${level} Skeleton${level === 1 ? '' : 's'} every 5s` : '',
+    unlockRequirement: { buildingId: 'ossuary', minLevel: 3 },
   },
 ];
 

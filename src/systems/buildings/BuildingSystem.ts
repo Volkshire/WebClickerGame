@@ -12,7 +12,7 @@ import type {
   BuildingsState,
 } from './types';
 
-/** Passive resource amounts produced by buildings (Ossuary bone income). */
+/** Passive resource amounts produced by buildings (Ossuary bone / Fleshworks flesh). */
 export type BuildingProduction = Partial<Record<'bone' | 'flesh' | 'iron', number>>;
 
 /**
@@ -59,11 +59,15 @@ export class BuildingSystem {
   private state: BuildingsState = { levels: {} };
   private autoRaiseTimer = 0;
   private productionCarry = 0;
+  private fleshProductionCarry = 0;
+  private skeletonAutoRaiseTimer = 0;
 
   /** Wiring-provided hook that raises up to `count` wraiths. */
   private autoRaiseHook: ((count: number) => void) | null = null;
-  /** Wiring-provided sink for whole-unit passive production (Ossuary bone). */
+  /** Wiring-provided sink for whole-unit passive production (Ossuary bone, Fleshworks flesh). */
   private productionHook: ((amounts: BuildingProduction) => void) | null = null;
+  /** Wiring-provided hook that raises up to `count` skeletons (Ossuary Auto-Raiser). */
+  private skeletonAutoRaiseHook: ((count: number) => void) | null = null;
 
   constructor(events: EventBus, saves: SaveManager, options: BuildingSystemOptions) {
     this.events = events;
@@ -90,6 +94,11 @@ export class BuildingSystem {
     this.productionHook = hook;
   }
 
+  /** Installs the skeleton auto-raise executor (Ossuary Auto-Raiser). */
+  setSkeletonAutoRaise(hook: (count: number) => void): void {
+    this.skeletonAutoRaiseHook = hook;
+  }
+
   levelOf(buildingId: string): number {
     return this.state.levels[buildingId] ?? 0;
   }
@@ -98,7 +107,20 @@ export class BuildingSystem {
     return this.levelOf(buildingId) > 0;
   }
 
+  /** Returns true if the building's unlock requirement is met (or absent). */
+  isUnlocked(buildingId: string): boolean {
+    const definition = BUILDINGS.find((entry) => entry.id === buildingId);
+    if (definition === undefined) return false;
+    if (definition.unlockRequirement === undefined) return true;
+    return (
+      this.levelOf(definition.unlockRequirement.buildingId) >=
+      definition.unlockRequirement.minLevel
+    );
+  }
+
   buy(buildingId: string): boolean {
+    if (!this.isUnlocked(buildingId)) return false;
+
     const definition = BUILDINGS.find((entry) => entry.id === buildingId);
     if (definition === undefined) return false;
 
@@ -126,6 +148,8 @@ export class BuildingSystem {
     this.state = { levels: {} };
     this.autoRaiseTimer = 0;
     this.productionCarry = 0;
+    this.fleshProductionCarry = 0;
+    this.skeletonAutoRaiseTimer = 0;
     this.save();
     this.publish();
   }
@@ -133,6 +157,8 @@ export class BuildingSystem {
   private tick(deltaSeconds: number): void {
     this.tickAutoRaise(deltaSeconds);
     this.tickProduction(deltaSeconds);
+    this.tickFleshProduction(deltaSeconds);
+    this.tickSkeletonAutoRaise(deltaSeconds);
   }
 
   private tickAutoRaise(deltaSeconds: number): void {
@@ -162,6 +188,36 @@ export class BuildingSystem {
     this.productionHook({ bone: whole });
   }
 
+  /**
+   * Fleshworks flesh income: same integer-discipline pattern as Ossuary bone
+   * production. Whole units only; fractional carry persists across ticks.
+   */
+  private tickFleshProduction(deltaSeconds: number): void {
+    const level = this.levelOf('fleshworks');
+    if (level <= 0 || this.productionHook === null || deltaSeconds <= 0) return;
+
+    this.fleshProductionCarry += level * deltaSeconds;
+    const whole = Math.floor(this.fleshProductionCarry);
+    if (whole <= 0) return;
+
+    this.fleshProductionCarry -= whole;
+    this.productionHook({ flesh: whole });
+  }
+
+  /**
+   * Ossuary Auto-Raiser: raises Skeletons on the same 5-second cadence as
+   * the Wraith auto-raise. Production output — no per-unit resource cost.
+   */
+  private tickSkeletonAutoRaise(deltaSeconds: number): void {
+    const level = this.levelOf('ossuary-auto-raiser');
+    if (level <= 0 || this.skeletonAutoRaiseHook === null) return;
+
+    this.skeletonAutoRaiseTimer += deltaSeconds;
+    if (this.skeletonAutoRaiseTimer < AUTO_RAISE_INTERVAL_SECONDS) return;
+    this.skeletonAutoRaiseTimer = 0;
+    this.skeletonAutoRaiseHook(level);
+  }
+
   private save(): void {
     this.saves.save({ v: SAVE_SCHEMA_VERSION, levels: { ...this.state.levels } });
   }
@@ -169,8 +225,9 @@ export class BuildingSystem {
   private publish(): void {
     const buildings: BuildingViewRow[] = BUILDINGS.map((definition) => {
       const level = this.levelOf(definition.id);
+      const unlocked = this.isUnlocked(definition.id);
       const nextCosts: BuildingCostEntry[] = [];
-      if (level < definition.maxLevel) {
+      if (unlocked && level < definition.maxLevel) {
         for (const [currency, amount] of Object.entries(
           buildingCostAt(definition, level),
         )) {
@@ -186,6 +243,7 @@ export class BuildingSystem {
         level,
         maxLevel: definition.maxLevel,
         nextCosts,
+        unlocked,
       };
     });
 

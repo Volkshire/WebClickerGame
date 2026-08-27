@@ -83,12 +83,12 @@ const CAMPAIGN_TERRAIN: readonly TerrainType[] = [
   'plains',
   'walled-settlement',
   'settlement',
-  'fortress',
+  'walled-settlement',
   'settlement',
   'fortress',
   'settlement',
   'settlement',
-  'settlement',
+  'fortress',
 ];
 
 /**
@@ -341,7 +341,7 @@ const ASH_TARGETS: TargetDefinition[] = [
       { unitId: 'veteran-ranged', quantity: 100 },
     ],
     heroChance: 0.42,
-    terrain: 'fortress',
+    terrain: 'walled-settlement',
     loot: { bone: 2, flesh: 2, iron: 2 },
     order: 5,
     flavorText: 'Banners and bastions cannot stop what already owns the night.',
@@ -427,7 +427,7 @@ const ASH_TARGETS: TargetDefinition[] = [
       { unitId: 'commander', quantity: 1100 },
     ],
     heroChance: 0.95,
-    terrain: 'settlement',
+    terrain: 'fortress',
     loot: { bone: 4, flesh: 4, iron: 4 },
     order: 10,
     flavorText: 'The throne of the living world. Its fall will echo through the ash of ages.',

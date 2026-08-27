@@ -16,11 +16,11 @@
 
 | | |
 |---|---|
-| **Last updated** | 2026-08-25 · 05:34 (UTC+8) |
+| **Last updated** | 2026-08-27 · 17:25 (UTC+8) |
 | **Game version** | 0.1.0 (`package.json`) |
 | **Verified against build** | `dist/assets/index-BV26Os72.js` (+ `index-0oniplYJ.css`), built from source on 2026-08-25 |
 | **Runtime** | Node v24.19.0 (tests), Vite 8 + TypeScript strict, vanilla DOM |
-| **Status** | All suites green: vitest **131/131** · tsc clean · smoke E2E ALL PASS |
+| **Status** | All suites green: vitest **222/222** · tsc clean · smoke E2E ALL PASS |
 
 ---
 
@@ -72,7 +72,7 @@ Design rules that must survive future changes:
 | `src/main.ts` | All routing (see §7, §8) |
 | `index.html` / `src/style.css` | Trophy button, achievements overlay, shop modal, debug shop button |
 | `src/core/SaveBackup.ts` | `GAME_SAVE_KEYS` (backup/reset/import coverage) |
-| `tests/prestige-points.test.ts` · `tests/achievements.test.ts` · `tests/prestige-shop.test.ts` | System tests |
+| `tests/prestige-points.test.ts` · `tests/achievements.test.ts` · `tests/prestige-shop.test.ts` · `tests/achievement-view-visibility.test.ts` · `tests/achievement-prestige-lifecycle.test.ts` | System tests |
 
 ## 3. Prestige State & Persistence
 
@@ -200,7 +200,10 @@ Current set (all rewards +1 PP):
 **Spoiler masking** — incomplete `spoiler:true` defs ship redacted view rows
 (`???` / "Hidden achievement" / no progress / no reward), applied
 system-side in `buildViews()` so the UI cannot leak. Unmasks permanently on
-completion. Header summary counts hidden entries in the total.
+completion. **The view layer (`AchievementView.updateRow`) refreshes name,
+description, and reward text on every render, so a row created while hidden
+reveals its real identity the moment it completes — no stale "???" text can
+persist.** Header summary counts hidden entries in the total.
 
 ## 7. Wiring Flows (`main.ts`)
 
@@ -248,10 +251,12 @@ export/import and the TOTAL RESET prefix sweep.
 
 | Suite | Covers |
 |---|---|
-| `npm test` (vitest, node env) | 131 tests total |
+| `npm test` (vitest, node env) | 222 tests total |
 | `tests/prestige-points.test.ts` | Milestone awarding/dedupe, multi-Age, perform claiming, persistence across resets, storage-failure abort, legacy saves, pending-survives-reload |
 | `tests/achievements.test.ts` | Complete-once latch, progress capping, reload persistence, registry extensibility, spoiler masking/unmasking |
 | `tests/prestige-shop.test.ts` | Catalog integrity, purchase/limit/requirement paths, permanent-purchase survival, generic full-catalog buy, effect aggregation |
+| `tests/achievement-view-visibility.test.ts` (jsdom) | Achievement reveal/mask DOM: masked→revealed transition, Prestige permanence, save/load, legacy migration, incomplete stays hidden |
+| `tests/achievement-prestige-lifecycle.test.ts` | Achievement+Prestige lifecycle: completion survives Prestige + reload, boot ordering, catch-up routing idempotency, uncompleted design |
 | `node scripts/smoke.mjs` | Headless E2E incl. scenario H (prestige save survives reload + shop gate) and G/I (total reset & import vs unload cascade) |
 
 Test infra notes: memory-localStorage shim in `tests/support/storage.ts`
@@ -297,4 +302,5 @@ Test infra notes: memory-localStorage shim in `tests/support/storage.ts`
 
 | Rev | Date | Author | Notes |
 |---|---|---|---|
+| r2 | 2026-08-27 | ox-alpha agent | Fix achievement reveal bug: AchievementView.updateRow now refreshes name/description/reward text on every render so a spoiler row created while hidden reveals correctly on completion. Added regression tests: `achievement-view-visibility.test.ts` (jsdom DOM) + `achievement-prestige-lifecycle.test.ts` (node lifecycle). Updated §6, §9, File Map, Status. All 222 tests green, tsc clean, build passes. |
 | r1 | 2026-08-25 | ox-alpha agent | Initial comprehensive write-up after Prestige Points + Shop + Achievements foundation, spoiler masking, boot-order fix, persistence-gate fix (build `index-BV26Os72.js`). |

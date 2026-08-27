@@ -165,4 +165,7 @@ export const HERO_VICTIM_TIER_BY_CP: readonly {
   { maxCp: 1, tier: 'recruit' }, // Wraith(1) ≈ enemy Recruit(1)
   { maxCp: 10, tier: 'trained' }, // Skeleton(2), Zombie(6) — outlast Wraiths
   { maxCp: 40, tier: 'elite' }, // Flesh Golem(25) ≈ enemy Elite(20)
+  { maxCp: 200, tier: 'commander' }, // Dread Champion(150)
+  { maxCp: 450, tier: 'commander' }, // Soul Reaper(300)
+  { maxCp: 800, tier: 'commander' }, // Dread Lord(600)
 ];

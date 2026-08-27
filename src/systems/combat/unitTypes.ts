@@ -27,6 +27,6 @@ export function tierRank(tier: UnitTier): number {
   return UNIT_TIER_ORDER.indexOf(tier);
 }
 
-export const UNIT_TAGS = ['spirit', 'bone', 'flesh', 'armored'] as const;
+export const UNIT_TAGS = ['spirit', 'bone', 'flesh', 'armored', 'soul'] as const;
 
 export type UnitTag = (typeof UNIT_TAGS)[number];

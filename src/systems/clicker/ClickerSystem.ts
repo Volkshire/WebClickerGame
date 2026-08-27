@@ -329,6 +329,7 @@ export class ClickerSystem {
 
     this.pendingSouls += rate * deltaSeconds;
     this.secondsSincePassiveSave += deltaSeconds;
+    this.state.lastSeen = this.now();
 
     const gained = Math.floor(this.pendingSouls);
     if (gained > 0) {

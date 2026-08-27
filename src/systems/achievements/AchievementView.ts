@@ -5,6 +5,10 @@ interface AchievementRowRefs {
   row: HTMLElement;
   statusChip: HTMLElement;
   progressLabel: HTMLElement;
+  /** Text nodes that vary with mask state; refreshed on every render. */
+  nameEl: HTMLElement;
+  descriptionEl: HTMLElement;
+  rewardEl: HTMLElement;
 }
 
 /**
@@ -162,12 +166,19 @@ export class AchievementView {
     row.append(main, side);
     this.listEl.appendChild(row);
 
-    return { row, statusChip, progressLabel };
+    return { row, statusChip, progressLabel, nameEl: name, descriptionEl: description, rewardEl: reward };
   }
 
   private updateRow(refs: AchievementRowRefs, definition: AchievementViewData): void {
     refs.row.classList.toggle('is-completed', definition.completed);
     refs.row.classList.toggle('is-masked', definition.masked);
+
+    // Always mirror the payload's current text so a row that started hidden
+    // (??? / "Hidden achievement") refreshes to its real name/description/
+    // reward the moment it completes (and back to redacted if re-masked).
+    refs.nameEl.textContent = definition.name;
+    refs.descriptionEl.textContent = definition.description;
+    refs.rewardEl.textContent = definition.rewardText;
 
     if (definition.masked) {
       // System-side redaction already blanked the text; just style it.

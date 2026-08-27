@@ -67,6 +67,14 @@ export class BuildingView {
 
     for (const item of payload.buildings) {
       const row = this.ensureRow(item);
+
+      // Hide buildings whose unlock requirement has not been met.
+      if (!item.unlocked) {
+        row.root.hidden = true;
+        continue;
+      }
+      row.root.hidden = false;
+
       const maxed = item.level >= item.maxLevel;
 
       row.chip.textContent = item.level > 0 ? `Lv ${item.level}` : '';
