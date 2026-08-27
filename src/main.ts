@@ -42,7 +42,8 @@ import { CombatEvents } from './systems/combat/types';
 import type { BattleResult, CombatChangedPayload } from './systems/combat/types';
 import { BUILT_IN_HERO_NAMES, mergeNamesFile } from './systems/combat/heroNames';
 import type { HeroNamePools } from './systems/combat/heroNames';
-import { getAgeByIndex } from './systems/combat/world';
+import { BUILT_IN_MECH_NAMES, mergeMechNamesFile } from './systems/combat/mechNames';
+import { AGES, getAgeByIndex } from './systems/combat/world';
 import { TabController } from './ui/Tabs';
 import { BuildingSystem } from './systems/buildings/BuildingSystem';
 import type { BuildingCurrency, BuildingCosts } from './systems/buildings/types';
@@ -670,6 +671,8 @@ app.events.on<CombatChangedPayload>(CombatEvents.Changed, (payload) => {
 
   evaluateAchievements();
 
+  updateDebugAgeUI();
+
   // The Crypt opens once the player has proven themselves in battle and
   // stays open across Age transitions (clearedCount restarts per Age).
   tabs.setHidden('crypt', payload.conqueredAges < 1 && payload.clearedCount < 1);
@@ -726,6 +729,16 @@ async function loadHeroNames(): Promise<HeroNamePools> {
     return mergeNamesFile(await response.text());
   } catch {
     return { custom: [], generated: BUILT_IN_HERO_NAMES };
+  }
+}
+
+async function loadMechNames(): Promise<HeroNamePools> {
+  try {
+    const response = await fetch('/mech-names.txt');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return mergeMechNamesFile(await response.text());
+  } catch {
+    return { custom: [], generated: BUILT_IN_MECH_NAMES };
   }
 }
 
@@ -840,9 +853,12 @@ app.events.on(AppEvents.Start, async () => {
   // Names must be installed before combat restores: a saved battle resolves
   // instantly and rolls its Heroes against the pool.
   combat.setHeroNames(await loadHeroNames());
+  combat.setMechNames(await loadMechNames());
   // Combat restores LAST so its publish reports Age milestones onto the
   // fully restored permanent ledgers (see ordering note above).
   guardedRestore(outcomes, 'combat', () => combat.restore());
+
+  updateDebugAgeUI();
 
   reportRestoreFailures(outcomes);
 
@@ -945,12 +961,49 @@ const debugShopButton = document.querySelector<HTMLButtonElement>('#debug-presti
 // ======== Debug: Prestige (opens confirmation modal) ========
 const debugPrestigeButton = document.querySelector<HTMLButtonElement>('#debug-prestige');
 
+// ======== Debug: Age Navigation ========
+const debugAgeAdvance = document.querySelector<HTMLButtonElement>('#debug-age-advance');
+const debugAgeRegress = document.querySelector<HTMLButtonElement>('#debug-age-regress');
+const debugAgeReset = document.querySelector<HTMLButtonElement>('#debug-age-reset');
+const debugAgeStatus = document.querySelector<HTMLElement>('#debug-age-status');
+
+function updateDebugAgeUI(): void {
+  const payload = lastCombatPayload;
+  if (!payload) return;
+  const atFirst = payload.conqueredAges === 0 && payload.clearedCount === 0;
+  const atLast = payload.conqueredAges >= payload.totalAges - 1 && payload.eraConquered;
+
+  debugAgeAdvance!.disabled = atLast;
+  debugAgeRegress!.disabled = atFirst;
+  debugAgeAdvance!.title = atLast ? 'Already at final age' : `Advance to ${AGES[payload.conqueredAges + 1]?.name ?? 'next age'}`;
+  debugAgeRegress!.title = atFirst ? 'Already at first age' : `Regress to ${AGES[payload.conqueredAges - 1]?.name ?? 'previous age'}`;
+
+  if (debugAgeStatus) {
+    debugAgeStatus.textContent = `Age: ${payload.eraName} (${payload.conqueredAges} / ${payload.totalAges - 1})`;
+  }
+}
+
 debugShopButton?.addEventListener('click', () => {
   prestigeShopView.open();
 });
 
 debugPrestigeButton?.addEventListener('click', () => {
   prestigeView.open();
+});
+
+debugAgeAdvance?.addEventListener('click', () => {
+  combat.debugAdvanceAge();
+  updateDebugAgeUI();
+});
+
+debugAgeRegress?.addEventListener('click', () => {
+  combat.debugRegressAge();
+  updateDebugAgeUI();
+});
+
+debugAgeReset?.addEventListener('click', () => {
+  combat.debugResetAge();
+  updateDebugAgeUI();
 });
 
 prestigeShopView.onBuy((itemId) => {

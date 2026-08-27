@@ -38,12 +38,14 @@ import type {
 } from './abilities';
 import { COMBAT_TACTICS } from './tactics';
 import { HERO_SKILLS } from './heroSkills';
+import { MECH_SKILLS } from './mechSkills';
 import { formatExact } from './battleFlavor';
 
 /** Shipped ability registry: Commander Tactics + Hero Skills. */
 const ALL_ABILITIES: Readonly<Record<string, CombatAbilityDefinition>> = {
   ...COMBAT_TACTICS,
   ...HERO_SKILLS,
+  ...MECH_SKILLS,
 };
 import {
   DEFENSE_COLLAPSING_LINES,
@@ -57,6 +59,9 @@ import {
   HERO_REINFORCEMENT_LINES,
   HERO_RETREAT_LINES,
   HERO_SLAIN_LINES,
+  MECH_ARRIVAL_LINES,
+  MECH_BLOODED_LINES,
+  MECH_SLAIN_LINES,
   LEGION_WAVERING_LINES,
   MOMENTUM_LINES,
   NEMESIS_RETURN_LINES,
@@ -158,6 +163,8 @@ export interface BattleGroupInput {
   resolve?: number;
   /** Hidden hero class; only set for enemy hero stacks. */
   heroClass?: HeroClass;
+  specialEntityKind?: 'human-hero' | 'mech';
+  canFlee?: boolean;
 }
 
 export interface BattleTargetMeta {
@@ -201,6 +208,8 @@ interface SimGroup {
   retreated: boolean;
   diedThisTick: boolean;
   readonly heroClass: HeroClass | null;
+  readonly specialEntityKind: 'human-hero' | 'mech' | null;
+  readonly canFlee: boolean;
 }
 
 function toSimGroup(input: BattleGroupInput): SimGroup {
@@ -229,6 +238,8 @@ function toSimGroup(input: BattleGroupInput): SimGroup {
     retreated: false,
     diedThisTick: false,
     heroClass: input.heroClass ?? null,
+    specialEntityKind: input.specialEntityKind ?? (input.isHero === true ? 'human-hero' : null),
+    canFlee: input.canFlee !== false,
   };
 }
 
@@ -417,7 +428,9 @@ export class BattleSimulation {
         ? pickLine(RETURN_DEFENDER_LINES, this.rng)
         : heroGroup.isReturningNemesis
           ? pickLine(NEMESIS_RETURN_LINES, this.rng)
-          : pickLine(HERO_ARRIVAL_LINES, this.rng);
+          : heroGroup.specialEntityKind === 'mech'
+            ? pickLine(MECH_ARRIVAL_LINES, this.rng)
+            : pickLine(HERO_ARRIVAL_LINES, this.rng);
       this.pushEvent('hero', formatFlavor(template, { hero: heroGroup.name }), true);
     }
     if (heroArrivals.length > MAX_NAMED_ARRIVALS) {
@@ -598,7 +611,7 @@ export class BattleSimulation {
         group.combatPowerEach *
         this.abilities.groupPower(
           side,
-          { unitId: group.unitId, type: group.type, tags: group.tags },
+      { unitId: group.unitId, type: group.type, tags: group.tags },
           this.tickCount,
         ),
       type: group.type,
@@ -697,7 +710,7 @@ export class BattleSimulation {
       for (const group of this.defenderGroups) {
         if (group.retreated) continue;
         if (!group.isHero || group.surviving <= 0) continue;
-        if (group.heroClass === 'tank') continue; // Tanks never flee
+        if (!group.canFlee || group.heroClass === 'tank') continue; // Mechs and Tanks never flee
         const chance =
           RETREAT_CHANCE_PER_TICK +
           (group.heroClass === 'ranged' ? RETREAT_RANGED_BONUS : 0) +
@@ -836,7 +849,7 @@ export class BattleSimulation {
         group.combatPowerEach *
         this.abilities.groupPower(
           'attacker',
-          { unitId: group.unitId, type: group.type, tags: group.tags },
+      { unitId: group.unitId, type: group.type, tags: group.tags },
           this.tickCount,
         );
     }
@@ -921,7 +934,7 @@ export class BattleSimulation {
       group.heroBloodiedAnnounced = true;
       this.pushEvent(
         'casualties',
-        formatFlavor(pickLine(HERO_BLOODED_LINES, this.rng), { hero: group.name }),
+        formatFlavor(pickLine(group.specialEntityKind === 'mech' ? MECH_BLOODED_LINES : HERO_BLOODED_LINES, this.rng), { hero: group.name }),
       );
     }
 
@@ -933,7 +946,7 @@ export class BattleSimulation {
         group.wipeEventEmitted = true;
         this.pushEvent(
           'climax',
-          formatFlavor(pickLine(HERO_SLAIN_LINES, this.rng), { hero: group.name }),
+          formatFlavor(pickLine(group.specialEntityKind === 'mech' ? MECH_SLAIN_LINES : HERO_SLAIN_LINES, this.rng), { hero: group.name }),
         );
       }
     }
@@ -1119,6 +1132,7 @@ export class BattleSimulation {
       unitId: group.unitId,
       type: group.type,
       tags: group.tags,
+      combatPower: group.combatPowerEach,
     });
   }
 

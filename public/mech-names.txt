@@ -1,0 +1,16 @@
+# Custom Mech names — one per line. Blank lines and # comments are ignored.
+Atlas
+Aegis
+Colossus
+Titan-01
+Iron Reaper
+Siegebreaker
+Warhound
+Bulwark
+NDK-05
+Scipher
+Heaven Climber
+Stryker D
+P4ND3S4L
+ReaperPuff
+

@@ -96,6 +96,8 @@ export interface UnitSelector {
   noun?: string;
   /** Maximum combat power; used by abilities like Rapid Fire to target low-CP units. */
   maxCombatPower?: number;
+  /** Minimum combat power, for high-value target effects such as Railgun. */
+  minCombatPower?: number;
 }
 
 /** Minimal stack identity the matcher and group-power folding need. */
@@ -103,6 +105,7 @@ export interface UnitSelectorTarget {
   readonly unitId?: string;
   readonly type?: UnitType;
   readonly tags?: readonly UnitTag[];
+  readonly combatPower?: number;
 }
 
 /** True when `target` satisfies every provided selector field (AND). */
@@ -112,6 +115,8 @@ export function selectorMatches(selector: Partial<UnitSelector>, target: UnitSel
   const tags = target.tags ?? [];
   if (selector.tag !== undefined && !tags.includes(selector.tag)) return false;
   if (selector.excludeTag !== undefined && tags.includes(selector.excludeTag)) return false;
+  if (selector.maxCombatPower !== undefined && (target.combatPower ?? Infinity) > selector.maxCombatPower) return false;
+  if (selector.minCombatPower !== undefined && (target.combatPower ?? -Infinity) < selector.minCombatPower) return false;
   return true;
 }
 

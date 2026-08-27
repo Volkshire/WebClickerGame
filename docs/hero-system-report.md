@@ -21,6 +21,25 @@
 
 ## 1. Identity & Name System
 
+### 1.3 Mech special entities (Age of Machines)
+
+Age configuration can replace the default human-Hero slots with a special-entity
+pool. `age-of-machines` selects `{ kind: 'mech', namePool: 'mech',
+maxPerTarget: 3 }`; no combat-engine Age-name check is used. Mechs remain
+individual Hero-style defender stacks, so each has independent ability cooldowns
+and once-per-battle state, but they draw only `MECH_SKILLS` and never consume the
+human name deck. `public/mech-names.txt` is the editable custom source; comments
+and blank lines are ignored, and its names receive a configurable 90% first-pick
+weight over the built-in Mech fallback. Existing standing defender names are
+already persisted by target; an Age of Machines target therefore recreates its
+persisted name as a Mech even if the editable pool later changes.
+
+The proof-of-concept Mech pool includes Machine Gun Barrage, Missile Salvo,
+Armor Plating, Overdrive, Railgun, and once-per-battle Nuclear Payload. All use
+the shared ability runtime, conditions, cooldowns, exact casualty reporting, and
+dramatic high-tier battle-log presentation. Mechanical arrival, damage, and
+destruction flavor is supplied by the shared battle flavor module.
+
 ### 1.1 Name Pool Sources
 
 | Source | Location | Names |

@@ -7,6 +7,7 @@ import {
   MAX_HEROES_PER_TARGET,
   NEMESIS_HIJACK_CHANCE,
   createHeroForTarget,
+  createMechForTarget,
   getEnemyUnit,
   rollTargetArmy,
 } from './enemyUnits';
@@ -24,6 +25,7 @@ import { rollHeroFates as resolveHeroFates } from './heroFates';
 import { pickUnique } from './heroNames';
 import { NameDeck } from './heroNames';
 import type { HeroNamePools } from './heroNames';
+import { MECH_CUSTOM_NAME_WEIGHT } from './mechNames';
 import { CombatEvents } from './types';
 import type {
   ActiveBattleView,
@@ -75,6 +77,7 @@ interface WorldBlob {
   fledHeroes?: { name: string; fledOrder: number }[];
   /** Remaining hero-name deck order (shuffle-bag persistence). Legacy flat array or new split format. */
   heroDeck?: string[] | { custom: string[]; generated: string[]; recent?: string[] };
+  mechDeck?: { custom: string[]; generated: string[]; recent?: string[] };
   /** Heroes that survived failed assaults, keyed by target id. */
   survivingDefenders?: Record<string, string[]>;
 }
@@ -110,6 +113,7 @@ function parseSavedBattle(raw: unknown): SavedBattle | null {
   if (typeof attackerPower !== 'number' || !Number.isFinite(attackerPower) || attackerPower <= 0) {
     return null;
   }
+
   const startedAtMs = record['startedAtMs'];
   if (typeof startedAtMs !== 'number' || !Number.isFinite(startedAtMs) || startedAtMs <= 0) {
     return null;
@@ -226,6 +230,16 @@ function parseWorldBlob(raw: unknown): WorldBlob | null {
     }
   }
 
+  const mechDeck = record['mechDeck'];
+  let parsedMechDeck: { custom: string[]; generated: string[]; recent?: string[] } | undefined;
+  if (mechDeck !== null && typeof mechDeck === 'object' && !Array.isArray(mechDeck)) {
+    const obj = mechDeck as Record<string, unknown>;
+    const custom = Array.isArray(obj['custom']) ? (obj['custom'] as unknown[]).filter((n): n is string => typeof n === 'string' && n.length > 0) : [];
+    const generated = Array.isArray(obj['generated']) ? (obj['generated'] as unknown[]).filter((n): n is string => typeof n === 'string' && n.length > 0) : [];
+    const recent = Array.isArray(obj['recent']) ? (obj['recent'] as unknown[]).filter((n): n is string => typeof n === 'string' && n.length > 0) : undefined;
+    if (custom.length > 0 || generated.length > 0) parsedMechDeck = { custom, generated, recent };
+  }
+
   // Standing-defender rosters: targetId -> Hero names, parsed leniently so
   // a corrupt entry can only drop one roster — never break the boot.
   const rawSurviving = record['survivingDefenders'];
@@ -246,6 +260,7 @@ function parseWorldBlob(raw: unknown): WorldBlob | null {
     migratedFromLegacy: typeof record['ageId'] !== 'string',
     fledHeroes: parsedFledHeroes,
     ...(parsedHeroDeck !== undefined ? { heroDeck: parsedHeroDeck as WorldBlob['heroDeck'] } : {}),
+    ...(parsedMechDeck !== undefined ? { mechDeck: parsedMechDeck } : {}),
     ...(survivingDefenders !== undefined ? { survivingDefenders } : {}),
   };
 }
@@ -289,6 +304,8 @@ function enemyGroupToInput(group: RolledArmyGroup): BattleGroupInput {
     ability: group.ability,
     tactics: group.tactics,
     heroClass: group.heroClass,
+    specialEntityKind: group.specialEntityKind,
+    canFlee: group.canFlee,
   };
 }
 
@@ -321,6 +338,10 @@ export class CombatSystem {
   private generatedNamePool: readonly string[] = [];
   /** Shuffle-bag over hero name pools; rebuilt lazily, persisted across reloads. */
   private nameDeck: NameDeck | null = null;
+  private mechNameDeck: NameDeck | null = null;
+  private mechCustomNamePool: readonly string[] = [];
+  private mechGeneratedNamePool: readonly string[] = [];
+  private pendingMechDeckOrder: { custom: readonly string[]; generated: readonly string[]; recent?: readonly string[] } | undefined;
   private pendingDeckOrder:
     | { custom: readonly string[]; generated: readonly string[]; recent?: readonly string[] }
     | undefined;
@@ -428,6 +449,15 @@ export class CombatSystem {
     this.pendingDeckOrder = undefined;
   }
 
+  setMechNames(pools: HeroNamePools): void {
+    this.mechCustomNamePool = pools.custom;
+    this.mechGeneratedNamePool = pools.generated;
+    this.mechNameDeck = new NameDeck(pools.custom, pools.generated, this.pendingMechDeckOrder, {
+      customWeight: MECH_CUSTOM_NAME_WEIGHT,
+    });
+    this.pendingMechDeckOrder = undefined;
+  }
+
   /**
    * Draws the next fresh hero name from the weighted shuffle-bag, excluding
    * anything already claimed (field heroes, grudge ledger). Falls back to
@@ -438,6 +468,14 @@ export class CombatSystem {
       this.nameDeck = new NameDeck(this.customNamePool, this.generatedNamePool);
     }
     return this.nameDeck?.draw(excluded, this.rng);
+  }
+
+  private drawSpecialEntityName(pool: 'human' | 'mech', excluded: ReadonlySet<string>): string | undefined {
+    if (pool === 'human') return this.drawHeroName(excluded);
+    if (this.mechNameDeck === null && (this.mechCustomNamePool.length > 0 || this.mechGeneratedNamePool.length > 0)) {
+      this.mechNameDeck = new NameDeck(this.mechCustomNamePool, this.mechGeneratedNamePool, undefined, { customWeight: MECH_CUSTOM_NAME_WEIGHT });
+    }
+    return this.mechNameDeck?.draw(excluded, this.rng);
   }
 
   /** Prestige support: wipes the campaign frontier and any live battle. */
@@ -453,6 +491,47 @@ export class CombatSystem {
     this.nameDeck = null; // fresh cycle for the new run
     this.persist();
     this.publish();
+  }
+
+  /** Debug: advance to next age if not at final age. */
+  debugAdvanceAge(): boolean {
+    if (this.ageIndex >= TOTAL_AGES - 1) return false;
+    this.ageIndex += 1;
+    this.clearedInAge = 0;
+    this.clearBattleState();
+    this.persist();
+    this.publish();
+    return true;
+  }
+
+  /** Debug: regress to previous age if not at first age. */
+  debugRegressAge(): boolean {
+    if (this.ageIndex <= 0) return false;
+    this.ageIndex -= 1;
+    this.clearedInAge = 0;
+    this.clearBattleState();
+    this.persist();
+    this.publish();
+    return true;
+  }
+
+  /** Debug: reset campaign to Age 0. */
+  debugResetAge(): void {
+    this.ageIndex = 0;
+    this.clearedInAge = 0;
+    this.clearBattleState();
+    this.persist();
+    this.publish();
+  }
+
+  /** Shared cleanup for all debug age changes. */
+  private clearBattleState(): void {
+    this.simulation = null;
+    this.deployment = null;
+    this.lastResult = null;
+    this.lastSnapshot = null;
+    this.fledHeroes = [];
+    this.standingDefenders.clear();
   }
 
   restore(): void {
@@ -486,6 +565,13 @@ export class CombatSystem {
           } else {
             this.pendingDeckOrder = deck;
           }
+        }
+      }
+      if (parsed.mechDeck !== undefined) {
+        if (this.mechGeneratedNamePool.length > 0 || this.mechCustomNamePool.length > 0) {
+          this.mechNameDeck = new NameDeck(this.mechCustomNamePool, this.mechGeneratedNamePool, parsed.mechDeck, { customWeight: MECH_CUSTOM_NAME_WEIGHT });
+        } else {
+          this.pendingMechDeckOrder = parsed.mechDeck;
         }
       }
       // A saved battle resolves instantly on reload; live battles do not
@@ -529,6 +615,8 @@ export class CombatSystem {
       target.combatPower,
       (excluded) => this.drawHeroName(excluded),
       this.standingDefenders.get(target.id),
+      this.age.specialEntitySpawn,
+      (pool, excluded) => this.drawSpecialEntityName(pool, excluded),
     );
     const meta: BattleTargetMeta = {
       id: target.id,
@@ -590,6 +678,8 @@ export class CombatSystem {
       target.combatPower,
       (excluded) => this.drawHeroName(excluded),
       this.standingDefenders.get(target.id),
+      resolved.age.specialEntitySpawn,
+      (pool, excluded) => this.drawSpecialEntityName(pool, excluded),
     );
     const meta: BattleTargetMeta = {
       id: target.id,
@@ -820,7 +910,10 @@ const result: BattleResult = {
       ...(noRetreat ? { noRetreat: true } : {}),
       reinforcement: {
         buildHero: () => {
+          const spawn = this.age.specialEntitySpawn;
+          const isMech = spawn?.kind === 'mech';
           if (
+            !isMech &&
             eligibleFled.length > 0 &&
             this.rng() < NEMESIS_HIJACK_CHANCE &&
             !usedNames.has(eligibleFled[0].name.toLowerCase())
@@ -837,17 +930,14 @@ const result: BattleResult = {
               isReturningNemesis: true,
             });
           }
-          const freshName =
-            this.drawHeroName(usedNames) ??
-            pickUnique(this.heroNames, usedNames, this.rng) ??
-            'Hero';
+          const freshName = isMech
+            ? this.drawSpecialEntityName('mech', usedNames) ?? 'Mech'
+            : this.drawHeroName(usedNames) ?? pickUnique(this.heroNames, usedNames, this.rng) ?? 'Hero';
           usedNames.add(freshName.toLowerCase());
           return enemyGroupToInput({
-            ...createHeroForTarget(
-              { combatPower: target.combatPower, order: target.order },
-              freshName,
-              false,
-            ),
+            ...(isMech
+              ? createMechForTarget({ combatPower: target.combatPower, order: target.order }, freshName)
+              : createHeroForTarget({ combatPower: target.combatPower, order: target.order }, freshName, false)),
             count: 1,
           });
         },
@@ -888,6 +978,7 @@ const result: BattleResult = {
       battle,
       fledHeroes: this.fledHeroes,
       heroDeck: this.nameDeck?.serialize() ?? [],
+      mechDeck: this.mechNameDeck?.serialize() ?? { custom: [], generated: [] },
       survivingDefenders: Object.fromEntries(this.standingDefenders),
     });
   }

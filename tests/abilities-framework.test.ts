@@ -584,41 +584,49 @@ describe('multi-effect activations', () => {
 describe('hero name deck', () => {
   const POOL = ['Aldric', 'Brigid', 'Cedric', 'Dierna', 'Eamon'];
   const excluded = (...names: string[]) => new Set(names.map((n) => n.toLowerCase()));
-  const make = (order?: readonly string[]) => new NameDeckClass(POOL, order);
+  const make = (initialOrder?: { custom: readonly string[]; generated: readonly string[] }) =>
+    new NameDeckClass([], POOL, initialOrder);
 
   it('deals every name exactly once before reshuffling', () => {
     const deck = make();
-    const drawn = [];
-    for (let i = 0; i < POOL.length; i++) drawn.push(deck.draw(excluded(), mulberry(7)));
-    expect([...drawn].sort()).toEqual([...POOL]);
+    const rng = mulberry(7);
+    const drawn: (string | undefined)[] = [];
+    for (let i = 0; i < POOL.length; i++) drawn.push(deck.draw(excluded(), rng));
+    expect(drawn.filter((n): n is string => n !== undefined).sort()).toEqual([...POOL]);
     // Cycle depleted -> reshuffle deals again.
-    expect(POOL).toContain(drawn.push(deck.draw(excluded(), mulberry(8))) && drawn[POOL.length]!);
+    const next = deck.draw(excluded(), rng);
+    expect(next).toBeDefined();
+    expect(POOL).toContain(next);
   });
 
   it('skips excluded names without blocking the bag', () => {
     const deck = make();
+    const rng = mulberry(1);
     const skip = excluded('aldric', 'brigid', 'cedric', 'dierna');
-    expect(deck.draw(skip, mulberry(1))).toBe('Eamon');
+    expect(deck.draw(skip, rng)).toBe('Eamon');
     // Everything excluded -> undefined instead of an infinite loop.
-    expect(deck.draw(excluded(...POOL), mulberry(2))).toBeUndefined();
+    expect(deck.draw(excluded(...POOL), rng)).toBeUndefined();
   });
 
   it('restores a serialized remaining order verbatim', () => {
+    const rngA = mulberry(3);
+    const rngB = mulberry(3);
     const first = make();
-    for (let i = 0; i < 2; i++) first.draw(excluded(), mulberry(3));
-    const restored = make(first.serialize());
-    expect(restored.serialize()).toEqual(first.serialize());
+    for (let i = 0; i < 2; i++) first.draw(excluded(), rngA);
+    const serialized = first.serialize();
+    const restored = make(serialized);
 
     // Same rng sequence -> identical continuation.
-    const a = [first.draw(excluded(), mulberry(9)), first.draw(excluded(), mulberry(10))];
-    const b = [restored.draw(excluded(), mulberry(9)), restored.draw(excluded(), mulberry(10))];
+    const a = [first.draw(excluded(), rngA), first.draw(excluded(), rngA)];
+    const b = [restored.draw(excluded(), rngB), restored.draw(excluded(), rngB)];
     expect(b).toEqual(a);
   });
 
   it('rejects corrupt restore orders and reshuffles fresh', () => {
-    const deck = make(['Aldric', 'Ghost']); // wrong size/name
-    const drawn = [];
-    for (let i = 0; i < POOL.length; i++) drawn.push(deck.draw(excluded(), mulberry(4)));
-    expect([...drawn].sort()).toEqual([...POOL]);
+    const deck = make({ custom: [], generated: ['Aldric', 'Ghost'] }); // wrong size/name
+    const rng = mulberry(4);
+    const drawn: (string | undefined)[] = [];
+    for (let i = 0; i < POOL.length; i++) drawn.push(deck.draw(excluded(), rng));
+    expect(drawn.filter((n): n is string => n !== undefined).sort()).toEqual([...POOL]);
   });
 });

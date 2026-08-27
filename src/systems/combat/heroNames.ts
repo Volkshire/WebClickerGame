@@ -89,6 +89,12 @@ export interface HeroNamePools {
   /** Built-in generated names (variety filler). */
   generated: readonly string[];
 }
+export type NamePools = HeroNamePools;
+
+export interface NameDeckOptions {
+  customWeight?: number;
+  maxRecentNames?: number;
+}
 
 /**
  * Parses `hero-names.txt` content, deduplicates case-insensitively, and
@@ -147,13 +153,18 @@ export class NameDeck {
   private generatedQueue: string[] = [];
   /** Ring-buffer of recently dealt lowercased names (cross-cycle exclusion). */
   private recent: string[] = [];
+  private readonly customWeight: number;
+  private readonly maxRecentNames: number;
 
   constructor(
     private readonly customPool: ReadonlyArray<string>,
     private readonly generatedPool: ReadonlyArray<string>,
     /** Restores a previously serialized deck state (save blobs). */
     initialOrder?: { custom: readonly string[]; generated: readonly string[]; recent?: readonly string[] },
+    options: NameDeckOptions = {},
   ) {
+    this.customWeight = options.customWeight ?? CUSTOM_NAME_WEIGHT;
+    this.maxRecentNames = options.maxRecentNames ?? MAX_RECENT_NAMES;
     const cleanCustom = customPool.map((n) => n.trim()).filter((n) => n.length > 0);
     const cleanGenerated = generatedPool.map((n) => n.trim()).filter((n) => n.length > 0);
 
@@ -165,7 +176,7 @@ export class NameDeck {
       this.customQueue = [...initialOrder.custom];
       this.generatedQueue = [...initialOrder.generated];
       if (initialOrder.recent !== undefined) {
-        this.recent = [...initialOrder.recent].slice(-MAX_RECENT_NAMES);
+        this.recent = [...initialOrder.recent].slice(-this.maxRecentNames);
       }
     } else {
       this.reshuffle(() => 0);
@@ -223,7 +234,7 @@ export class NameDeck {
    * dealt names are excluded until the pool cycles past them.
    */
   draw(excluded: ReadonlySet<string>, rng: () => number): string | undefined {
-    const tryCustomFirst = rng() < CUSTOM_NAME_WEIGHT;
+    const tryCustomFirst = rng() < this.customWeight;
 
     if (tryCustomFirst) {
       const name = this.drawFromQueue(this.customQueue, this.customPool, excluded, rng);
@@ -265,6 +276,6 @@ export class NameDeck {
 
   private pushRecent(lower: string): void {
     this.recent.push(lower);
-    if (this.recent.length > MAX_RECENT_NAMES) this.recent.shift();
+    if (this.recent.length > this.maxRecentNames) this.recent.shift();
   }
 }

@@ -16,14 +16,14 @@ describe('formatNumber abbreviation tiers', () => {
   it('abbreviates through the suffix table', () => {
     expect(formatNumber(1_500_000)).toBe('1.50M');
     expect(formatNumber(2_500_000_000)).toBe('2.50B');
-    expect(formatNumber(3_200_000_000_000)).toBe('3.20T');
+    expect(formatNumber(3_200_000_000_000)).toBe('3.2000T');
   });
 
   it('keeps correct tiers past Qi (old bug pinned everything at Qi)', () => {
-    expect(formatNumber(1e21)).toBe('1.00Sx');
-    expect(formatNumber(1e24)).toBe('1.00Sp');
-    expect(formatNumber(1.5e27)).toBe('1.50Oc');
-    expect(formatNumber(1e33)).toBe('1.00Dc');
+    expect(formatNumber(1e21)).toBe('1.00000Sx');
+    expect(formatNumber(1e24)).toBe('1.000000Sp');
+    expect(formatNumber(1.5e27)).toBe('1.500000Oc');
+    expect(formatNumber(1e33)).toBe('1.0000000Dc');
   });
 
   it('falls back to scientific notation past the suffix table', () => {

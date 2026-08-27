@@ -2,6 +2,7 @@ import type { ResourceId } from '../resources/types';
 import type { TerrainType } from './terrain';
 import { getEnemyUnit } from './enemyUnits';
 import type { ArmyCompositionEntry, EnemyUnitDefinition } from './enemyUnits';
+import type { EnemySpecialEntitySpawnConfig } from './enemyUnits';
 import { type UnitTier } from './unitTypes';
 
 /**
@@ -52,6 +53,8 @@ export interface AgeDefinition {
   enemyUnits: readonly string[];
   /** The Age's campaign ladder, in strict progression order. */
   targets: readonly TargetDefinition[];
+  /** Optional replacement for the default human-Hero slot pool. */
+  specialEntitySpawn?: EnemySpecialEntitySpawnConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -616,6 +619,7 @@ export const AGES: readonly AgeDefinition[] = [
     id: 'age-of-machines',
     name: 'Age of Machines',
     enemyUnits: MACHINES_UNITS,
+    specialEntitySpawn: { kind: 'mech', namePool: 'mech', maxPerTarget: 3 },
     targets: ladderTargets(
       {
         prefix: 'machines-',

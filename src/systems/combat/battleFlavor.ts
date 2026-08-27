@@ -101,6 +101,20 @@ export const HERO_ARRIVAL_LINES: readonly string[] = [
   'Your wights turn as one. {hero} is among them.',
 ];
 
+export const MECH_ARRIVAL_LINES: readonly string[] = [
+  'Hydraulics scream as {hero} locks onto the undead host.',
+  '{hero} advances on grinding servos; target acquisition complete.',
+  'Reactor alarms flare as {hero} enters the kill zone.',
+];
+export const MECH_BLOODED_LINES: readonly string[] = [
+  '{hero} sheds armor plates but its targeting systems remain fixed.',
+  '{hero} vents coolant in a white plume and keeps firing.',
+];
+export const MECH_SLAIN_LINES: readonly string[] = [
+  '{hero} collapses in a storm of sparks and ruptured hydraulics.',
+  '{hero} reactor goes dark beneath the undead tide.',
+];
+
 /**
  * A Hero that survived your last failed assault holds the same ground
  * again — they have been waiting for you.

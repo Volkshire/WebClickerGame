@@ -4,6 +4,14 @@ import { HERO_RESOLVE_BASE } from './pacing';
 import { TACTIC_IDS } from './tactics';
 import { HERO_CLASS_LOADOUTS, pickHeroClass } from './heroClasses';
 import type { HeroClass } from './heroClasses';
+import { MECH_SKILL_IDS } from './mechSkills';
+
+export type SpecialEntityKind = 'human-hero' | 'mech';
+export interface EnemySpecialEntitySpawnConfig {
+  kind: SpecialEntityKind;
+  namePool: 'human' | 'mech';
+  maxPerTarget: number;
+}
 
 /**
  * Ability descriptor attached to special units (Heroes today, Commanders
@@ -52,6 +60,8 @@ export interface EnemyUnitDefinition {
   tactics?: readonly string[];
   /** Hidden hero class for hero units; determines skill loadout. */
   heroClass?: HeroClass;
+  specialEntityKind?: SpecialEntityKind;
+  canFlee?: boolean;
 }
 
 function melee(id: string, name: string, tier: UnitTier, cp: number, tags: readonly UnitTag[] = []): EnemyUnitDefinition {
@@ -233,6 +243,20 @@ export function createHeroForTarget(
   };
 }
 
+/** Mechs reuse the Hero stack/ability runtime but own their pool and skills. */
+export function createMechForTarget(
+  target: { combatPower: number; order: number },
+  name?: string,
+): EnemyUnitDefinition {
+  return {
+    id: 'mech', name: name ?? 'Mech', type: 'ranged', tier: 'hero',
+    combatPower: Math.max(500, Math.round(target.combatPower * 0.085)),
+    tags: ['armored'], isHero: true, specialEntityKind: 'mech', canFlee: false,
+    ability: { kind: ABILITY_KINDS.heroicThreat, strength: HERO_THREAT_FRESH * 1.2 },
+    resolve: heroResolveForOrder(target.order) + 4, tactics: MECH_SKILL_IDS,
+  };
+}
+
 export function getEnemyUnit(unitId: string): EnemyUnitDefinition | null {
   if (unitId === HERO_UNIT.id) return HERO_UNIT;
   return ENEMY_UNITS[unitId] ?? null;
@@ -285,7 +309,11 @@ export function rollTargetArmy(
    * (repeat attacks face exactly them, nobody else).
    */
   standingHeroes?: readonly string[],
+  /** Age data selects a special entity pool without combat-engine age checks. */
+  specialEntity?: EnemySpecialEntitySpawnConfig,
+  drawSpecialEntityName?: (pool: 'human' | 'mech', excluded: ReadonlySet<string>) => string | undefined,
 ): RolledArmyGroup[] {
+  const spawn = specialEntity ?? { kind: 'human-hero' as const, namePool: 'human' as const, maxPerTarget: MAX_HEROES_PER_TARGET };
   const finalTarget = isFinalTarget === true;
   const groups: RolledArmyGroup[] = [];
   for (const entry of entries) {
@@ -333,8 +361,10 @@ export function rollTargetArmy(
     }
     // Fresh identity: shuffle-bag first (no repeats until the pool
     // depletes), uniform fallback when no deck is supplied.
-    const drawn = drawHeroName?.(usedNames());
-    const name = drawn ?? pickUnique(heroPool, usedNames(), rng) ?? 'Hero';
+    const drawn = drawSpecialEntityName?.(spawn.namePool, usedNames()) ??
+      (spawn.namePool === 'human' ? drawHeroName?.(usedNames()) : undefined);
+    const name = drawn ??
+      (spawn.namePool === 'human' ? pickUnique(heroPool, usedNames(), rng) ?? 'Hero' : 'Mech');
     return { name, returning: false };
   };
 
@@ -348,12 +378,14 @@ export function rollTargetArmy(
       .filter((c): c is HeroClass => c !== undefined);
     const resolvedClass = identity.returning ? 'caster' : pickHeroClass(existingClasses, rng);
     return {
-      ...createHeroForTarget(
+      ...(spawn.kind === 'mech'
+        ? createMechForTarget({ combatPower: targetCombatPower ?? 0, order: currentTargetOrder ?? 0 }, identity.name)
+        : createHeroForTarget(
         { combatPower: targetCombatPower ?? 0, order: currentTargetOrder ?? 0 },
         identity.name,
         identity.returning,
         resolvedClass,
-      ),
+      )),
       count: 1,
       ...(identity.returning ? { isReturningNemesis: true } : {}),
     };
@@ -383,12 +415,14 @@ export function rollTargetArmy(
       .filter((c): c is HeroClass => c !== undefined);
     const defenderClass = pickHeroClass(existingClasses, rng);
     groups.push({
-      ...createHeroForTarget(
+      ...(spawn.kind === 'mech'
+        ? createMechForTarget({ combatPower: targetCombatPower ?? 0, order: currentTargetOrder ?? 0 }, name)
+        : createHeroForTarget(
         { combatPower: targetCombatPower ?? 0, order: currentTargetOrder ?? 0 },
         name,
         false,
         defenderClass,
-      ),
+      )),
       count: 1,
       isReturningDefender: true,
     });
@@ -396,7 +430,7 @@ export function rollTargetArmy(
 
   if (rosterLocked) return groups;
 
-  const freeSlots = Math.max(0, MAX_HEROES_PER_TARGET - survivors.length);
+  const freeSlots = Math.max(0, spawn.maxPerTarget - survivors.length);
   for (let slot = 0; slot < freeSlots; slot += 1) {
     if (rng() >= heroChance) continue;
     // Every Hero takes the field as their OWN individual stack with their
@@ -407,7 +441,7 @@ export function rollTargetArmy(
 
   // Guarantee beats cap: any owed fled Heroes beyond MAX_HEROES_PER_TARGET
   // still take the field on the final target.
-  while (finalTarget && fledIndex < fledPool.length) {
+  while (finalTarget && spawn.kind === 'human-hero' && fledIndex < fledPool.length) {
     groups.push(buildHero({ name: fledPool[fledIndex].name, returning: true }));
     fledIndex += 1;
   }
