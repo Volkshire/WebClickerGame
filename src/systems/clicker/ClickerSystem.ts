@@ -11,7 +11,8 @@ import type {
   UpgradeView,
 } from './types';
 import { UPGRADES, calculateExponentialCost } from './upgrades';
-import { GENERATORS, revealedGeneratorIds } from './generators';
+import { GENERATORS } from './generators';
+import { formatNumber } from '../../ui/format';
 
 const BASE_SOULS_PER_CLICK = 1;
 const PASSIVE_SAVE_INTERVAL_SECONDS = 5;
@@ -91,14 +92,6 @@ export class ClickerSystem {
   private button: HTMLButtonElement | null = null;
   private pendingSouls = 0;
   private secondsSincePassiveSave = 0;
-  /**
-   * Dark Infrastructure watermark: the revealed set at the instant the boon
-   * became active (purchase moment mid-run, or run start/boot when already
-   * owned). Everything in it is grandfathered — NEVER auto-granted. Null
-   * means "not yet captured"; resetRun() clears it so each run recaptures
-   * its own starting baseline.
-   */
-  private grantBaseline: Set<string> | null = null;
   private readonly now: () => number;
   private readonly getClickPowerFlat: () => number;
   private readonly getSoulHarvestMultiplier: () => number;
@@ -201,9 +194,15 @@ export class ClickerSystem {
     const cost = calculateExponentialCost(definition, owned);
     if (this.state.souls < cost) return false;
 
-    const raw = this.state.generators[definition.id] ?? 0;
     this.state.souls -= cost;
-    this.state.generators[definition.id] = raw + 1;
+
+    const diActive = this.getStartingGeneratorOwned() > 0;
+    if (diActive && owned === 0) {
+      this.state.generators[definition.id] = 2;
+    } else {
+      this.state.generators[definition.id] = owned + 1;
+    }
+
     this.save();
     this.publish();
     return true;
@@ -250,7 +249,6 @@ export class ClickerSystem {
     this.pendingSouls = 0;
     // New run, new baseline: whatever is visible at run start (the
     // first-unowned tier) is grandfathered, never auto-granted.
-    this.grantBaseline = null;
     this.save();
     this.publish();
   }
@@ -282,45 +280,6 @@ export class ClickerSystem {
     // virtual count — that made every tier visible/producing and instantly
     // satisfied the Legion's Soul Siphon gate.
     return this.state.generators[generatorId] ?? 0;
-  }
-
-  /**
-   * Dark Infrastructure: when a generator becomes revealed by the EXISTING
-   * progression rules (shared source of truth in generators.ts) AFTER the
-   * boon is active, grant it Owned 1 exactly once.
-   *
-   * - No retroactive grants: tiers already visible at activation are frozen
-   *   into the baseline watermark and skipped forever.
-   * - Grant = a plain write to the owned map, so it persists like any other
-   *   purchase and can never fire twice for the same generator.
-   * - Baseline unions each evaluation's revealed set, so a balance dip that
-   *   un-reveals a tier cannot later re-arm its grant.
-   *
-   * Returns true when at least one grant fired (caller persists).
-   */
-  private applyDarkInfrastructureGrants(): boolean {
-    const starting = this.getStartingGeneratorOwned();
-    if (!(starting > 0)) return false;
-
-    const revealedNow = revealedGeneratorIds(this.state.souls, this.state.generators);
-
-    if (this.grantBaseline === null) {
-      // Activation instant: snapshot WITHOUT granting anything.
-      this.grantBaseline = new Set(revealedNow);
-      return false;
-    }
-
-    let granted = false;
-    for (const id of revealedNow) {
-      if (this.grantBaseline.has(id)) continue;
-      if ((this.state.generators[id] ?? 0) > 0) continue;
-      this.state.generators[id] = starting;
-      granted = true;
-    }
-    // Latch everything currently visible so un-reveal/re-reveal cycles
-    // stay inert, then report.
-    for (const id of revealedNow) this.grantBaseline.add(id);
-    return granted;
   }
 
   private tick(deltaSeconds: number): void {
@@ -357,10 +316,6 @@ export class ClickerSystem {
   }
 
   private publish(): void {
-    // Dark Infrastructure grant pass runs BEFORE the payload is built, so a
-    // freshly granted tier renders Owned 1 in the very same frame.
-    if (this.applyDarkInfrastructureGrants()) this.save();
-
     const upgrades: UpgradeView[] = UPGRADES.map((definition) => {
       const level = this.getLevel(definition.id);
       return {
@@ -375,13 +330,12 @@ export class ClickerSystem {
 
     const generators: GeneratorView[] = GENERATORS.map((definition) => {
       const owned = this.getOwned(definition.id);
-      const production = definition.productionPerSecond * owned;
       return {
         id: definition.id,
         name: definition.name,
         owned,
         cost: calculateExponentialCost(definition, owned),
-        effectText: production > 0 ? `+${production} Souls per second` : '',
+        effectText: `+${formatNumber(definition.productionPerSecond)} Souls per second`,
         flavor: definition.flavor,
       };
     });

@@ -17,7 +17,6 @@ beforeEach(() => {
 
 const KEY = 'webclickergame.clicker';
 
-/** Owned counts by generator id, from the latest Changed payload. */
 function ownedOf(payload: ClickerChangedPayload): Record<string, number> {
   const map: Record<string, number> = {};
   for (const generator of payload.generators) map[generator.id] = generator.owned;
@@ -44,7 +43,6 @@ function makeHarness(getStartingGeneratorOwned: () => number): Harness {
   return { clicker, saves, events, last: () => latest! };
 }
 
-/** Writes souls through the real persistence path, PRESERVING owned counts, then restores. */
 function seedSouls(harness: Harness, souls: number): void {
   const previous = JSON.parse(localStorage.getItem(KEY) ?? '{}') as {
     upgrades?: Record<string, number>;
@@ -72,12 +70,10 @@ describe('revealedGeneratorIds (shared source of truth)', () => {
     const revealed = revealedGeneratorIds(0, { 'grave-keeper': 5, 'soul-collector': 1 });
     expect(revealed.has('grave-keeper')).toBe(true);
     expect(revealed.has('soul-collector')).toBe(true);
-    expect(revealed.has('grim-reaper')).toBe(true); // now first-unowned
+    expect(revealed.has('grim-reaper')).toBe(true);
   });
 
   it('wealth peek triggers at exactly cost / REVEAL_FACTOR souls', () => {
-    // Grim Reaper baseCost 2500; the function takes RAW souls and applies
-    // the ×8 factor itself: souls × 8 ≥ 2500 ⇔ souls ≥ 312.5.
     const below = revealedGeneratorIds(312, {});
     expect(below.has('grim-reaper')).toBe(false);
 
@@ -96,127 +92,118 @@ describe('revealedGeneratorIds (shared source of truth)', () => {
 });
 
 describe('Dark Infrastructure', () => {
-  it('is fully inert while the boon is not owned', () => {
-    const h = makeHarness(() => 0);
-    seedSouls(h, 1_000_000_000);
-    seedSouls(h, 1_000_000_000); // extra publish cycle
-    const owned = ownedOf(h.last());
-    for (const generator of GENERATORS) {
-      expect(owned[generator.id]).toBe(0);
-    }
-  });
-
-  it('fresh run: first-unowned tier is grandfathered, NOT granted', () => {
+  it('DI active, newly unlocked generator at Owned 0 -> buy 1 -> Owned 2', () => {
     const h = makeHarness(() => 1);
-    seedSouls(h, 0); // baseline captures at this publish
-    const owned = ownedOf(h.last());
-    expect(owned['grave-keeper']).toBe(0); // stays manual
-    expect(owned['soul-collector']).toBe(0); // still locked
+    seedSouls(h, 100);
+    expect(ownedOf(h.last())['grave-keeper']).toBe(0);
+
+    h.clicker.buyGenerator('grave-keeper');
+    expect(ownedOf(h.last())['grave-keeper']).toBe(2);
   });
 
-  it('grants Owned 1 when a tier naturally unlocks AFTER activation', () => {
+  it('buy the same generator again -> normal +1 only', () => {
+    const h = makeHarness(() => 1);
+    seedSouls(h, 100);
+    h.clicker.buyGenerator('grave-keeper');
+    expect(ownedOf(h.last())['grave-keeper']).toBe(2);
+
+    h.clicker.buyGenerator('grave-keeper');
+    expect(ownedOf(h.last())['grave-keeper']).toBe(3);
+  });
+
+  it('newly unlocked generator remains locked until normal progression allows it', () => {
     const h = makeHarness(() => 1);
     seedSouls(h, 0);
+
+    expect(h.clicker.buyGenerator('soul-collector')).toBe(false);
     expect(ownedOf(h.last())['soul-collector']).toBe(0);
 
-    // Cross Soul Collector's wealth peek (250 × 8 = 2000... actually its own
-    // threshold; Grave Keeper's peek at 200 was already inside the baseline).
     seedSouls(h, 300);
-    expect(ownedOf(h.last())['soul-collector']).toBe(1);
-
-    // Grim Reaper peek needs 20,000 — still locked.
-    expect(ownedOf(h.last())['grim-reaper']).toBe(0);
-
-    seedSouls(h, 30_000);
-    expect(ownedOf(h.last())['grim-reaper']).toBe(1);
+    expect(h.clicker.buyGenerator('soul-collector')).toBe(true);
+    expect(ownedOf(h.last())['soul-collector']).toBe(2);
   });
 
-  it('no retroactive grants when purchased mid-run', () => {
+  it('buying the first generator does not unlock the rest of the generator ladder', () => {
+    const h = makeHarness(() => 1);
+    seedSouls(h, 100);
+
+    h.clicker.buyGenerator('grave-keeper');
+    expect(ownedOf(h.last())['grave-keeper']).toBe(2);
+
+    const revealed = revealedGeneratorIds(0, { 'grave-keeper': 2 });
+    expect(revealed.has('soul-collector')).toBe(true);
+    expect(revealed.has('grim-reaper')).toBe(false);
+  });
+
+  it('existing generators already owned before purchasing DI receive no retroactive bonus', () => {
     let startingOwned = 0;
     const h = makeHarness(() => startingOwned);
+    seedSouls(h, 100);
 
-    // Pre-purchase world: several tiers already visible (souls high).
-    seedSouls(h, 100_000);
-    expect(ownedOf(h.last())['soul-collector']).toBe(0);
-    expect(ownedOf(h.last())['grim-reaper']).toBe(0);
+    h.clicker.buyGenerator('grave-keeper');
+    h.clicker.buyGenerator('grave-keeper');
+    expect(ownedOf(h.last())['grave-keeper']).toBe(2);
 
-    // Purchase moment: boon flips on; baseline freezes what is visible NOW.
     startingOwned = 1;
-    seedSouls(h, 100_000);
-    expect(ownedOf(h.last())['soul-collector']).toBe(0); // grandfathered
-    expect(ownedOf(h.last())['grim-reaper']).toBe(0); // grandfathered
+    seedSouls(h, 500);
+    expect(ownedOf(h.last())['grave-keeper']).toBe(2);
 
-    // A big balance jump afterwards: tiers whose peek this crosses AND
-    // which were NOT visible pre-purchase get exactly one grant.
-    // Peek thresholds (souls = cost ÷ 8): collector 31 · reaper 313 ·
-    // siphon 3,125 · choir 31,250 · foundry 312,500 · altar 3,125,000 ·
-    // necropolis-heart 31,250,000 · forge 312,500,000.
-    seedSouls(h, 300_000_000);
-    const owned = ownedOf(h.last());
-    expect(owned['soul-collector']).toBe(0); // visible BEFORE purchase → grandfathered
-    expect(owned['grim-reaper']).toBe(0);
-    expect(owned['soul-siphon']).toBe(0);
-    expect(owned['bone-choir']).toBe(0); // peek 31,250 ≤ 100k → also grandfathered
-    expect(owned['wraith-foundry']).toBe(1);
-    expect(owned['obsidian-altar']).toBe(1);
-    expect(owned['necropolis-heart']).toBe(1);
-    // Soul Forge peek needs 312.5M souls → still locked.
-    expect(owned['soul-forge']).toBe(0);
+    h.clicker.buyGenerator('soul-collector');
+    expect(ownedOf(h.last())['soul-collector']).toBe(2);
   });
 
-  it('grant latches once even if the balance dips back below the peek', () => {
+  it('multiple generators each independently receive the one-time bonus', () => {
     const h = makeHarness(() => 1);
-    seedSouls(h, 0); // baseline: only grave-keeper visible
-    seedSouls(h, 300); // collector unlocks → granted
-    expect(ownedOf(h.last())['soul-collector']).toBe(1);
+    seedSouls(h, 100);
 
-    seedSouls(h, 0); // dip below every peek
-    seedSouls(h, 300); // re-cross
-    expect(ownedOf(h.last())['soul-collector']).toBe(1);
-    const rawSave = JSON.parse(localStorage.getItem(KEY)!);
-    expect(rawSave['generators']['soul-collector']).toBe(1);
+    h.clicker.buyGenerator('grave-keeper');
+    expect(ownedOf(h.last())['grave-keeper']).toBe(2);
+
+    seedSouls(h, 500);
+    h.clicker.buyGenerator('soul-collector');
+    expect(ownedOf(h.last())['soul-collector']).toBe(2);
+
+    seedSouls(h, 50000);
+    h.clicker.buyGenerator('grim-reaper');
+    expect(ownedOf(h.last())['grim-reaper']).toBe(2);
+
+    seedSouls(h, 5000000);
+    h.clicker.buyGenerator('soul-siphon');
+    expect(ownedOf(h.last())['soul-siphon']).toBe(2);
   });
 
-  it('grants persist through save/restore and boot recaptures safely', () => {
-    const h = makeHarness(() => 1);
-    seedSouls(h, 0); // baseline
-    // 1,000 souls crosses collector (31.25) and reaper (312.5) peeks but
-    // NOT siphon (3,125) — keeps the boot-recapture assertion meaningful.
-    seedSouls(h, 1_000);
+  it('DI inactive -> no bonus on first purchase', () => {
+    const h = makeHarness(() => 0);
+    seedSouls(h, 100);
 
-    const saved = JSON.parse(localStorage.getItem(KEY)!);
-    expect(saved['generators']['soul-collector']).toBe(1);
-    expect(saved['generators']['grim-reaper']).toBe(1);
-    expect(saved['generators']['soul-siphon'] ?? 0).toBe(0);
-
-    // Fresh system instance over the same storage (simulated reboot).
-    const reborn = makeHarness(() => 1);
-    reborn.clicker.restore();
-    const owned = ownedOf(reborn.last());
-    expect(owned['soul-collector']).toBe(1);
-    expect(owned['grim-reaper']).toBe(1);
-    // Boot baseline includes everything currently revealed — siphon stays
-    // locked until it naturally unlocks after this boot.
-    expect(owned['soul-siphon']).toBe(0);
+    h.clicker.buyGenerator('grave-keeper');
+    expect(ownedOf(h.last())['grave-keeper']).toBe(1);
   });
 
-  it('resetRun clears the watermark so each run grandfathers anew', () => {
+  it('bonus resets per run after Prestige', () => {
     const h = makeHarness(() => 1);
-    seedSouls(h, 0);
-    seedSouls(h, 30_000); // collector + reaper granted in run 1
-    expect(ownedOf(h.last())['soul-collector']).toBe(1);
+    seedSouls(h, 100);
+    h.clicker.buyGenerator('grave-keeper');
+    expect(ownedOf(h.last())['grave-keeper']).toBe(2);
 
     h.clicker.resetRun();
-    // Run-start reveal set = {grave-keeper} → grandfathered, nothing granted.
-    let owned = ownedOf(h.last());
-    expect(owned['grave-keeper']).toBe(0);
-    expect(owned['soul-collector']).toBe(0);
-    expect(owned['grim-reaper']).toBe(0);
+    expect(ownedOf(h.last())['grave-keeper']).toBe(0);
 
-    // Run 2: the same natural unlocks grant again.
-    seedSouls(h, 300);
-    owned = ownedOf(h.last());
-    expect(owned['soul-collector']).toBe(1);
-    expect(owned['grave-keeper']).toBe(0); // still manual, every run
+    seedSouls(h, 100);
+    h.clicker.buyGenerator('grave-keeper');
+    expect(ownedOf(h.last())['grave-keeper']).toBe(2);
+  });
+
+  it('unaffordable first purchase does not consume the bonus', () => {
+    const h = makeHarness(() => 1);
+    seedSouls(h, 0);
+
+    h.clicker.spendSouls(24);
+    expect(h.clicker.buyGenerator('grave-keeper')).toBe(false);
+    expect(ownedOf(h.last())['grave-keeper']).toBe(0);
+
+    h.clicker.grantSouls(25);
+    expect(h.clicker.buyGenerator('grave-keeper')).toBe(true);
+    expect(ownedOf(h.last())['grave-keeper']).toBe(2);
   });
 });

@@ -783,11 +783,20 @@ interface RestoreOutcome {
  * handler during its publish) used to abort the WHOLE cascade — every later
  * system then stayed at zero and its next save wiped real progress. Now each
  * system loads or fails independently.
+ *
+ * A restore() returning false (parse failure) is also treated as a failed
+ * restore. Failed critical restores must never cause default in-memory state
+ * to overwrite the last known-good canonical save.
+ * Some systems return void (always succeed); others return boolean.
  */
-function guardedRestore(outcomes: RestoreOutcome[], name: string, restore: () => void): void {
+function guardedRestore(outcomes: RestoreOutcome[], name: string, restore: () => boolean | void): void {
   try {
-    restore();
-    outcomes.push({ system: name, ok: true });
+    const result = restore();
+    const ok = result !== false; // void -> true, false -> false, true -> true
+    outcomes.push({ system: name, ok });
+    if (!ok) {
+      console.error(`Boot: restoring "${name}" FAILED — parse returned false, state reset to defaults.`);
+    }
   } catch (error) {
     outcomes.push({ system: name, ok: false });
     console.error(`Boot: restoring "${name}" FAILED — its save was left untouched on disk.`, error);
@@ -874,7 +883,23 @@ app.events.on(AppEvents.Start, async () => {
   }
   // Canonical restores may have normalized a legacy system sub-blob during
   // restore. Save that coherent final snapshot once, after all systems ran.
-  persistence.endBatch(profileRestore.source !== 'legacy');
+  // Only persist if ALL critical systems restored successfully — a failed
+  // critical restore leaving default state must never overwrite the canonical
+  // profile with zeros.
+  const criticalSystems = [
+    'prestige',
+    'achievements',
+    'necromancy',
+    'legion',
+    'clicker',
+    'resources',
+    'buildings',
+    'combat',
+  ] as const;
+  const allCriticalOk = criticalSystems.every((sys) =>
+    outcomes.find((o) => o.system === sys)?.ok ?? false
+  );
+  persistence.endBatch(profileRestore.source !== 'legacy' && allCriticalOk);
 });
 
 document.addEventListener('visibilitychange', () => {

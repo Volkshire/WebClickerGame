@@ -110,8 +110,7 @@ export const SHOP_ITEMS: readonly ShopItemDefinition[] = [
   {
     id: 'dark-infrastructure',
     name: 'Dark Infrastructure',
-    // Copy says "Owned 1" — keep `value` at 1 or update this string too.
-    description: 'Each Soul Generator begins at Owned 1 the moment it unlocks.',
+    description: 'The first purchase of each Soul Generator grants 1 free extra level.',
     cost: 2,
     maxPurchases: 1,
     permanent: true,
