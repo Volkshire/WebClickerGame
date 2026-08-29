@@ -831,6 +831,10 @@ app.events.on(AppEvents.Start, async () => {
   // ordered system restores run. Legacy deployed blobs are accepted once and
   // converted to the canonical profile after a successful restore.
   persistence.beginBatch();
+  // Arm boot-window Soul-spend protection before any system restore runs, so
+  // an unexpected boot-time expense can never wipe the player's Clicker
+  // balance. Disarmed by clicker.markBooted() once the window ends below.
+  clicker.armBootProtection();
   const profileRestore = persistence.restore();
   restoreUiPrefs();
   if (profileRestore.source === 'invalid') {
@@ -940,6 +944,11 @@ app.events.on(AppEvents.Start, async () => {
   }
 
   persistence.endBatch(profileRestore.source !== 'legacy' && allCriticalOk);
+
+  // Boot/restore window is over. Legitimate gameplay spends (buildings,
+  // Legion auto-raise/recruitment, etc.) are now allowed normally; the
+  // ClickerSystem's boot-window spend protection is disarmed.
+  clicker.markBooted();
 });
 
 document.addEventListener('visibilitychange', () => {

@@ -806,4 +806,53 @@ describe('Delayed Clicker state corruption regression', () => {
     // Souls should still be 10,000, not reset to 0
     expect(restoredClicker.souls).toBe(10_000);
   });
+
+  it('refuses an unexpected boot-time Soul spend so the restored balance survives (armBootProtection)', () => {
+    // Seed a progressed save with a nonzero Soul balance.
+    const firstSlots = slots();
+    const firstPersistence = coordinator(firstSlots);
+    const firstEvents = new EventBus();
+    const firstClicker = new ClickerSystem(firstEvents, firstSlots['webclickergame.clicker'], () => 1_000_000);
+    firstClicker.restore();
+    firstClicker.grantSouls(5_000);
+    firstClicker.buyGenerator('grave-keeper');
+    expect(firstPersistence.save()).toBe(true);
+
+    // New process: full boot. Arm the protection BEFORE the systems restore,
+    // exactly as the production boot flow does.
+    const restoredSlots = slots();
+    const restoredPersistence = coordinator(restoredSlots);
+    restoredPersistence.restore();
+    const restoredEvents = new EventBus();
+    const restoredClicker = new ClickerSystem(restoredEvents, restoredSlots['webclickergame.clicker'], () => 1_000_000);
+    restoredClicker.armBootProtection();
+    expect(restoredClicker.restore()).toBe(true);
+
+    // The restored last-known-good balance is anchored.
+    const baseline = restoredClicker.souls;
+    expect(baseline).toBeGreaterThan(0);
+
+    // A spurious boot-time spend (whatever its source) must be refused:
+    // spending below the restored baseline is blocked and does NOT reduce
+    // the protected balance.
+    const attemptedSpend = baseline;
+    expect(restoredClicker.spendSouls(attemptedSpend)).toBe(false);
+    expect(restoredClicker.souls).toBe(baseline);
+
+    // Mark boot complete; legitimate spending is allowed again afterward.
+    restoredClicker.markBooted();
+    expect(restoredClicker.buyGenerator('soul-collector')).toBe(true);
+    expect(restoredClicker.souls).toBeLessThan(baseline);
+
+    // endBatch must persist the protected (not zeroed) state. A memory-save
+    // listener is not wired in this isolated test, so flag the canonical save
+    // explicitly (as the requestSave path would).
+    restoredPersistence.requestSave();
+    restoredPersistence.endBatch(true);
+    const profile = new SaveManager(PROFILE_STORAGE_KEY).load() as { data: Record<string, unknown> };
+    const clickerData = profile.data['webclickergame.clicker'] as { souls: number };
+    expect(clickerData.souls).toBe(restoredClicker.souls);
+    expect(clickerData.souls).toBeLessThan(baseline);
+    expect(clickerData.souls).toBeGreaterThan(0);
+  });
 });

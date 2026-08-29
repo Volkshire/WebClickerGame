@@ -97,6 +97,19 @@ export class ClickerSystem {
   private readonly getSoulHarvestMultiplier: () => number;
   private readonly getSoulGenerationMultiplier: () => number;
   private readonly getStartingGeneratorOwned: () => number;
+  // Instance tracking for debugging multiple instances
+  private static nextInstanceId = 0;
+  private readonly instanceId: number = ClickerSystem.nextInstanceId++;
+
+  // Boot-window protection: automatic gameplay must never spend Souls while
+  // restoring state. The wiring layer arms this (armBootProtection) at the
+  // start of the production boot; while armed and a valid save has restored,
+  // any soul-lowering spend that would drive the balance below the last
+  // known-good restored value is refused, so the player's saved balance can
+  // never be silently wiped by a spurious boot purchase/expense. Normal play
+  // (after markBooted) and non-boot flows are unaffected.
+  private booted = true;
+  private lastKnownGoodSouls = 0;
 
   constructor(
     events: EventBus,
@@ -112,6 +125,14 @@ export class ClickerSystem {
     this.getSoulGenerationMultiplier = options.getSoulGenerationMultiplier ?? (() => 1);
     this.getStartingGeneratorOwned = options.getStartingGeneratorOwned ?? (() => 0);
 
+    console.log('[SAVE] ClickerSystem.constructor', {
+      instanceId: this.instanceId,
+      initialSouls: this.state.souls,
+      initialTotalClicks: this.state.totalClicks,
+      initialUpgrades: Object.keys(this.state.upgrades).length,
+      initialGenerators: Object.keys(this.state.generators).length,
+    });
+
     events.on<UpdatePayload>(AppEvents.Update, ({ deltaSeconds }) => {
       this.tick(deltaSeconds);
     });
@@ -124,6 +145,26 @@ export class ClickerSystem {
     events.on(AppEvents.Flush, () => {
       this.save();
     });
+  }
+
+  /**
+   * Called once the boot/restore window has completed. Until this runs, a
+   * soul-lowering spend is refused if it would drop the balance below the
+   * restored last-known-good value (see spendSouls/buyUpgrade/buyGenerator).
+   */
+  markBooted(): void {
+    this.booted = true;
+  }
+
+  /**
+   * Arms boot-window spend protection. The wiring layer calls this at the
+   * START of the production boot, so any automatic Soul spend that would
+   * drop the player's restored balance is refused until markBooted() runs.
+   * Non-boot flows (and most tests) never arm it, so they are unaffected.
+   */
+  armBootProtection(): void {
+    this.booted = false;
+    this.lastKnownGoodSouls = 0;
   }
 
   get soulsPerClick(): number {
@@ -179,7 +220,10 @@ export class ClickerSystem {
     const cost = calculateExponentialCost(definition, level);
     if (this.state.souls < cost) return false;
 
+    const oldSouls = this.state.souls;
+    if (!this.guardBootSpend(oldSouls - cost, 'buyUpgrade')) return false;
     this.state.souls -= cost;
+    this.logSoulsMutation('buyUpgrade', oldSouls, this.state.souls);
     this.state.upgrades[definition.id] = level + 1;
     this.save();
     this.publish();
@@ -194,7 +238,10 @@ export class ClickerSystem {
     const cost = calculateExponentialCost(definition, owned);
     if (this.state.souls < cost) return false;
 
+    const oldSouls = this.state.souls;
+    if (!this.guardBootSpend(oldSouls - cost, 'buyGenerator')) return false;
     this.state.souls -= cost;
+    this.logSoulsMutation('buyGenerator', oldSouls, this.state.souls);
 
     const diActive = this.getStartingGeneratorOwned() > 0;
     if (diActive && owned === 0) {
@@ -211,7 +258,10 @@ export class ClickerSystem {
   spendSouls(amount: number): boolean {
     if (!Number.isFinite(amount) || amount <= 0) return false;
     if (this.state.souls < amount) return false;
+    const oldSouls = this.state.souls;
+    if (!this.guardBootSpend(oldSouls - amount, 'spendSouls')) return false;
     this.state.souls -= amount;
+    this.logSoulsMutation('spendSouls', oldSouls, this.state.souls);
     this.save();
     this.publish();
     return true;
@@ -220,7 +270,9 @@ export class ClickerSystem {
   /** Grants souls from external systems (e.g. the Soul Net kill conversion). */
   grantSouls(amount: number): boolean {
     if (!Number.isFinite(amount) || amount <= 0) return false;
+    const oldSouls = this.state.souls;
     this.state.souls += Math.floor(amount);
+    this.logSoulsMutation('grantSouls', oldSouls, this.state.souls);
     this.save();
     this.publish();
     return true;
@@ -229,7 +281,13 @@ export class ClickerSystem {
   restore(): boolean {
     const parsed = parseSavedState(this.saves.load());
     if (parsed !== null) {
+      const oldSouls = this.state.souls;
       this.state = parsed;
+      this.logSoulsMutation('restore', oldSouls, this.state.souls);
+      // Anchor the boot-window guard to the balance that was actually loaded
+      // from the save: anything that spends Souls below this, before boot
+      // completes, is an unexpected boot-time expense.
+      this.lastKnownGoodSouls = this.state.souls;
       this.pendingSouls = 0;
     }
     this.publish();
@@ -239,6 +297,7 @@ export class ClickerSystem {
   /** Prestige support: wipes souls, upgrades and generators; totalClicks is a lifetime stat. */
   resetRun(): void {
     console.error('[SAVE] ClickerSystem.resetRun() CALLED - stack:', new Error().stack);
+    const oldSouls = this.state.souls;
     this.state = {
       souls: 0,
       totalClicks: this.state.totalClicks,
@@ -247,6 +306,7 @@ export class ClickerSystem {
       // Anchors offline progress to the reset moment.
       lastSeen: this.now(),
     };
+    this.logSoulsMutation('resetRun', oldSouls, this.state.souls);
     this.pendingSouls = 0;
     // New run, new baseline: whatever is visible at run start (the
     // first-unowned tier) is grandfathered, never auto-granted.
@@ -265,7 +325,9 @@ export class ClickerSystem {
     const gained = Math.floor(this.soulsPerSecond * cappedSeconds);
     if (gained <= 0) return 0;
 
+    const oldSouls = this.state.souls;
     this.state.souls += gained;
+    this.logSoulsMutation('claimOfflineProgress', oldSouls, this.state.souls);
     this.state.lastSeen = this.now();
     this.save();
     this.publish();
@@ -283,6 +345,38 @@ export class ClickerSystem {
     return this.state.generators[generatorId] ?? 0;
   }
 
+  private logSoulsMutation(operation: string, oldSouls: number, newSouls: number): void {
+    if (oldSouls === newSouls) return;
+    console.log('[SAVE] ClickerSystem souls mutation', {
+      instanceId: this.instanceId,
+      operation,
+      oldSouls,
+      newSouls,
+      delta: newSouls - oldSouls,
+      totalClicks: this.state.totalClicks,
+      caller: new Error().stack?.split('\n').slice(1, 4).join(' -> ') ?? 'unknown',
+    });
+  }
+
+  /**
+   * Refuses a soul-lowering spend during the boot/restore window that would
+   * drive the balance below the last known-good restored value. After
+   * markBooted() normal gameplay spends are always allowed.
+   */
+  private guardBootSpend(newSouls: number, operation: string): boolean {
+    if (this.booted || newSouls >= this.lastKnownGoodSouls) return true;
+    console.error(
+      '[SAVE] BLOCKED unexpected boot-time Soul spend (protection active)', {
+        instanceId: this.instanceId,
+        operation,
+        wouldResultInSouls: newSouls,
+        lastKnownGoodSouls: this.lastKnownGoodSouls,
+        caller: new Error().stack?.split('\n').slice(1, 5).join(' -> ') ?? 'unknown',
+      },
+    );
+    return false;
+  }
+
   private tick(deltaSeconds: number): void {
     const rate = this.soulsPerSecond;
     if (rate <= 0 || deltaSeconds <= 0) return;
@@ -294,7 +388,9 @@ export class ClickerSystem {
     const gained = Math.floor(this.pendingSouls);
     if (gained > 0) {
       this.pendingSouls -= gained;
+      const oldSouls = this.state.souls;
       this.state.souls += gained;
+      this.logSoulsMutation('tick-passive', oldSouls, this.state.souls);
       this.publish();
     }
 
@@ -371,8 +467,10 @@ export class ClickerSystem {
   }
 
   private harvest = (): void => {
+    const oldSouls = this.state.souls;
     this.state.souls += this.soulsPerClick;
     this.state.totalClicks += 1;
+    this.logSoulsMutation('harvest-click', oldSouls, this.state.souls);
     this.save();
     this.publish();
   };
