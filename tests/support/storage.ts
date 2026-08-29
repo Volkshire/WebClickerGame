@@ -13,21 +13,15 @@ export interface MemoryStorage {
   failNextWrites: (count: number) => void;
 }
 
-export function installMemoryStorage(): MemoryStorage {
-  let failuresRemaining = 0;
-
-  // Storage data lives as enumerable own props on the shim itself, so
-  // Object.keys(localStorage) sees exactly the stored keys (real-storage
-  // behavior SaveBackup's prefix sweep depends on). Methods are defined
-  // non-enumerable so they never pollute that view.
+function createStorageShim(failuresRef: { count: number }) {
   const shim = {} as Record<string | symbol, unknown> & { length: number };
 
   const methods = {
     getItem: (key: string): string | null =>
       Object.prototype.hasOwnProperty.call(shim, key) ? (shim[key] as string) : null,
     setItem: (key: string, value: string): void => {
-      if (failuresRemaining > 0) {
-        failuresRemaining -= 1;
+      if (failuresRef.count > 0) {
+        failuresRef.count -= 1;
         throw new Error('simulated quota failure');
       }
       shim[key] = String(value);
@@ -56,14 +50,24 @@ export function installMemoryStorage(): MemoryStorage {
     configurable: true,
   });
 
-  (globalThis as unknown as { localStorage: unknown }).localStorage = shim;
+  return shim;
+}
+
+export function installMemoryStorage(): MemoryStorage {
+  const failuresRef = { count: 0 };
+
+  const localShim = createStorageShim(failuresRef);
+  const sessionShim = createStorageShim(failuresRef);
+
+  (globalThis as unknown as { localStorage: unknown }).localStorage = localShim;
+  (globalThis as unknown as { sessionStorage: unknown }).sessionStorage = sessionShim;
 
   return {
     seed: (key: string, value: string) => {
-      shim[key] = String(value);
+      localShim[key] = String(value);
     },
     failNextWrites: (count: number) => {
-      failuresRemaining = count;
+      failuresRef.count = count;
     },
   };
 }

@@ -817,6 +817,16 @@ app.events.on(AppEvents.Start, async () => {
   screen.markReady('loop');
   sessionGuard.checkOnBoot();
 
+  // Capture pre-boot canonical profile for regression assertion
+  const preBootCanonicalProfile = (() => {
+    try {
+      const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+
   // Hydrate every memory-backed system save before the existing, deliberately
   // ordered system restores run. Legacy deployed blobs are accepted once and
   // converted to the canonical profile after a successful restore.
@@ -880,7 +890,11 @@ app.events.on(AppEvents.Start, async () => {
 
   if (profileRestore.source === 'legacy') {
     persistence.migrateLegacy();
+    // Verify legacy keys were actually cleared
+    persistence.verifyLegacyCleared();
   }
+  // Post-migration sanity check: legacy keys should not coexist with canonical profile
+  persistence.checkLegacyKeysWithCanonical();
   // Canonical restores may have normalized a legacy system sub-blob during
   // restore. Save that coherent final snapshot once, after all systems ran.
   // Only persist if ALL critical systems restored successfully — a failed
@@ -899,6 +913,32 @@ app.events.on(AppEvents.Start, async () => {
   const allCriticalOk = criticalSystems.every((sys) =>
     outcomes.find((o) => o.system === sys)?.ok ?? false
   );
+
+  // REGRESSION ASSERTION: If any critical system failed to restore, the canonical
+  // profile in localStorage must be identical to the pre-boot snapshot. A failed
+  // restore must never cause default/fallback state to overwrite the last known-good
+  // persisted data.
+  if (!allCriticalOk && preBootCanonicalProfile !== null) {
+    const postBootCanonicalProfile = (() => {
+      try {
+        const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    })();
+    const profilesMatch = JSON.stringify(preBootCanonicalProfile) === JSON.stringify(postBootCanonicalProfile);
+    if (!profilesMatch) {
+      console.error('[SAVE] REGRESSION DETECTED: Canonical profile was modified despite critical restore failure!', {
+        preBoot: preBootCanonicalProfile,
+        postBoot: postBootCanonicalProfile,
+        failedSystems: outcomes.filter(o => !o.ok).map(o => o.system),
+      });
+    } else {
+      console.log('[SAVE] Canonical profile protected - unchanged after critical restore failure');
+    }
+  }
+
   persistence.endBatch(profileRestore.source !== 'legacy' && allCriticalOk);
 });
 

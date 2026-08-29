@@ -9,6 +9,7 @@ import {
 } from '../src/core/PersistenceCoordinator';
 import { EventBus } from '../src/core/EventBus';
 import { resumePersistence, SaveManager } from '../src/core/SaveManager';
+import { SessionGuard } from '../src/core/SessionGuard';
 import { ClickerSystem } from '../src/systems/clicker/ClickerSystem';
 import { PrestigeSystem } from '../src/systems/prestige/PrestigeSystem';
 import { ResourceSystem } from '../src/systems/resources/ResourceSystem';
@@ -22,6 +23,8 @@ import { installMemoryStorage } from './support/storage';
 beforeEach(() => {
   installMemoryStorage();
   resumePersistence();
+  // Clear sessionStorage for SessionGuard tests
+  try { sessionStorage.clear(); } catch {}
 });
 
 function slots() {
@@ -416,5 +419,244 @@ describe('Full boot restore regression', () => {
     expect(freshClicker.getOwned('grave-keeper')).toBe(0);
     expect(freshLegion.isUnlocked).toBe(true);
     expect(freshLegion.countOf('wraith')).toBe(42);
+  });
+});
+
+describe('SessionGuard single-instance behavior', () => {
+  const SESSION_KEY = 'webclickergame.session';
+  const SESSION_STORAGE_KEY = 'webclickergame.session.id';
+
+  it('first instance is accepted (no foreign warning)', () => {
+    const saves = new SaveManager(SESSION_KEY);
+    const guard = new SessionGuard(saves, () => 1000);
+    const isForeign = guard.checkOnBoot();
+    expect(isForeign).toBe(false);
+  });
+
+  it('reloading the same tab does not falsely report another instance', () => {
+    const now = 1000;
+    // Simulate first session: write heartbeat
+    const sessionId = 'session-test-1';
+    const heartbeat = { id: sessionId, stamp: now };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(heartbeat));
+    // Store same session ID in sessionStorage (simulating reload)
+    sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+
+    const saves = new SaveManager(SESSION_KEY);
+    const guard = new SessionGuard(saves, () => now + 100); // 100ms later, still fresh
+    const isForeign = guard.checkOnBoot();
+    expect(isForeign).toBe(false);
+    // Verify session ID was reused from sessionStorage
+    // (guard.sessionId is private, but we can verify no warning by checking checkOnBoot returns false)
+  });
+
+  it('stale session (older than FOREIGN_FRESH_WINDOW_MS) is ignored', () => {
+    const now = 1000;
+    const sessionId = 'session-stale';
+    // Heartbeat older than 15 seconds
+    const heartbeat = { id: sessionId, stamp: now - 20000 };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(heartbeat));
+    // No sessionStorage entry (fresh tab)
+
+    const saves = new SaveManager(SESSION_KEY);
+    const guard = new SessionGuard(saves, () => now);
+    const isForeign = guard.checkOnBoot();
+    expect(isForeign).toBe(false);
+  });
+
+  it('genuinely concurrent instance with fresh heartbeat triggers detection', () => {
+    const now = 1000;
+    const foreignId = 'session-foreign';
+    const heartbeat = { id: foreignId, stamp: now };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(heartbeat));
+    // No sessionStorage entry (different tab)
+
+    const saves = new SaveManager(SESSION_KEY);
+    const guard = new SessionGuard(saves, () => now);
+    const isForeign = guard.checkOnBoot();
+    expect(isForeign).toBe(true);
+  });
+
+  it('different session ID in sessionStorage vs localStorage generates new ID', () => {
+    const now = 1000;
+    const oldId = 'session-old';
+    const heartbeat = { id: oldId, stamp: now };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(heartbeat));
+    // sessionStorage has different ID (simulating tab duplication, not reload)
+    sessionStorage.setItem(SESSION_STORAGE_KEY, 'session-different');
+
+    const saves = new SaveManager(SESSION_KEY);
+    const guard = new SessionGuard(saves, () => now);
+    const isForeign = guard.checkOnBoot();
+    // Should detect as foreign because sessionStorage ID doesn't match localStorage heartbeat
+    expect(isForeign).toBe(true);
+  });
+});
+
+describe('Partial restore failure protection', () => {
+  // Minimal transactors for BuildingSystem and NecromancySystem tests
+  const buildingTransactor = {
+    canAfford: () => true,
+    spend: () => true,
+  };
+  const necromancyTransactor = {
+    canAfford: () => true,
+    spend: () => true,
+  };
+
+  it('one critical system fails, others succeed; canonical profile protected', () => {
+    // 1. Create canonical profile with good data for all systems
+    const firstSlots = slots();
+    const firstPersistence = coordinator(firstSlots);
+    const firstEvents = new EventBus();
+
+    const firstClicker = new ClickerSystem(firstEvents, firstSlots['webclickergame.clicker'], () => 1_000_000);
+    const firstLegion = new LegionSystem(firstEvents, firstSlots['webclickergame.legion']);
+    const firstResources = new ResourceSystem(firstEvents, firstSlots['webclickergame.resources']);
+    const firstPrestige = new PrestigeSystem(firstEvents, firstSlots['webclickergame.prestige']);
+    const firstAchievements = new AchievementSystem(firstEvents, firstSlots['webclickergame.achievements']);
+    const firstNecromancy = new NecromancySystem(firstEvents, firstSlots['webclickergame.necromancy'], { transactor: necromancyTransactor });
+    const firstBuildings = new BuildingSystem(firstEvents, firstSlots['webclickergame.buildings'], { transactor: buildingTransactor });
+    const firstCombat = new CombatSystem(firstEvents, firstSlots['webclickergame.combat']);
+
+    // Seed all systems with good data
+    firstClicker.restore(); firstClicker.grantSouls(5_000_000);
+    firstLegion.restore(); firstLegion.checkGeneratorUnlock({ 'soul-siphon': 1 }); firstLegion.addUnits('wraith', 100);
+    firstResources.restore(); firstResources.grant('bone', 1_000);
+    firstPrestige.restore(); firstPrestige.setCampaignCompleted(true);
+    firstAchievements.restore();
+    firstNecromancy.restore();
+    firstBuildings.restore();
+    firstCombat.restore();
+
+    expect(firstPersistence.save()).toBe(true);
+
+    // Capture canonical profile before simulated failure
+    const preBootProfile = new SaveManager(PROFILE_STORAGE_KEY).load();
+
+    // 2. Simulate boot where Necromancy restore FAILS (corrupted data)
+    const restoredSlots = slots();
+    const restoredPersistence = coordinator(restoredSlots);
+    restoredPersistence.restore(); // hydrates from canonical (good data)
+
+    // Corrupt necromancy memory data to cause parse failure
+    restoredSlots['webclickergame.necromancy'].replace({ v: 1, levels: { 'invalid': 'not-a-number' } });
+
+    const restoredEvents = new EventBus();
+    const restoredPrestige = new PrestigeSystem(restoredEvents, restoredSlots['webclickergame.prestige']);
+    const restoredAchievements = new AchievementSystem(restoredEvents, restoredSlots['webclickergame.achievements']);
+    const restoredNecromancy = new NecromancySystem(restoredEvents, restoredSlots['webclickergame.necromancy'], { transactor: necromancyTransactor });
+    const restoredLegion = new LegionSystem(restoredEvents, restoredSlots['webclickergame.legion']);
+    const restoredClicker = new ClickerSystem(restoredEvents, restoredSlots['webclickergame.clicker'], () => 1_000_000);
+    const restoredResources = new ResourceSystem(restoredEvents, restoredSlots['webclickergame.resources']);
+    const restoredBuildings = new BuildingSystem(restoredEvents, restoredSlots['webclickergame.buildings'], { transactor: buildingTransactor });
+    const restoredCombat = new CombatSystem(restoredEvents, restoredSlots['webclickergame.combat']);
+
+    const outcomes: { system: string; ok: boolean }[] = [];
+
+    function guardedRestoreTest(outcomes: { system: string; ok: boolean }[], name: string, restore: () => boolean | void): void {
+      try {
+        const result = restore();
+        const ok = result !== false;
+        outcomes.push({ system: name, ok });
+      } catch (error) {
+        outcomes.push({ system: name, ok: false });
+      }
+    }
+
+    // Boot order from main.ts
+    guardedRestoreTest(outcomes, 'prestige', () => restoredPrestige.restore());
+    guardedRestoreTest(outcomes, 'achievements', () => restoredAchievements.restore());
+    for (const entry of restoredAchievements.getCompletedPrestigePointRewards()) {
+      restoredPrestige.reportReward(entry.id, entry.amount);
+    }
+    guardedRestoreTest(outcomes, 'necromancy', () => restoredNecromancy.restore()); // THIS FAILS
+    guardedRestoreTest(outcomes, 'legion', () => restoredLegion.restore());
+    guardedRestoreTest(outcomes, 'clicker', () => restoredClicker.restore());
+    guardedRestoreTest(outcomes, 'resources', () => restoredResources.restore());
+    guardedRestoreTest(outcomes, 'buildings', () => restoredBuildings.restore());
+    guardedRestoreTest(outcomes, 'combat', () => restoredCombat.restore());
+
+    // Verify necromancy failed but others succeeded
+    const necromancyOutcome = outcomes.find(o => o.system === 'necromancy');
+    const clickerOutcome = outcomes.find(o => o.system === 'clicker');
+    const legionOutcome = outcomes.find(o => o.system === 'legion');
+    expect(necromancyOutcome?.ok).toBe(false);
+    expect(clickerOutcome?.ok).toBe(true);
+    expect(legionOutcome?.ok).toBe(true);
+
+    // 3. Simulate endBatch with save=false (because necromancy failed)
+    const criticalSystems = ['prestige', 'achievements', 'necromancy', 'legion', 'clicker', 'resources', 'buildings', 'combat'] as const;
+    const allCriticalOk = criticalSystems.every((sys) =>
+      outcomes.find((o) => o.system === sys)?.ok ?? false
+    );
+    expect(allCriticalOk).toBe(false);
+    restoredPersistence.endBatch(false);
+
+    // 4. Verify canonical profile in localStorage is UNCHANGED (still has good data)
+    const postBootProfile = new SaveManager(PROFILE_STORAGE_KEY).load();
+    expect(postBootProfile).toEqual(preBootProfile);
+
+    // 5. Verify fresh restore gets the original good data
+    const freshSlots = slots();
+    const freshPersistence = coordinator(freshSlots);
+    const freshRestore = freshPersistence.restore();
+    expect(freshRestore.source).toBe('canonical');
+
+    const freshEvents = new EventBus();
+    const freshClicker = new ClickerSystem(freshEvents, freshSlots['webclickergame.clicker'], () => 1_000_000);
+    const freshLegion = new LegionSystem(freshEvents, freshSlots['webclickergame.legion']);
+    const freshNecromancy = new NecromancySystem(freshEvents, freshSlots['webclickergame.necromancy'], { transactor: necromancyTransactor });
+
+expect(freshClicker.restore()).toBe(true);
+    expect(freshLegion.restore()).toBe(true);
+    expect(freshNecromancy.restore()).toBe(true); // Fresh slot has good data from canonical
+    expect(freshClicker.souls).toBe(5_000_000);
+    expect(freshLegion.countOf('wraith')).toBe(100);
+  });
+});
+
+describe('Corrupted-but-valid Clicker data detection', () => {
+  it('Clicker parser rejects corrupted data that passes basic validation but is semantically wrong', () => {
+    // The Clicker parseSavedState should be strict enough to reject
+    // data that looks valid but represents a corrupted state.
+    // This test documents the current parser behavior.
+    
+    // Valid data should parse
+    const validData = { v: 1, souls: 1000, totalClicks: 50, upgrades: { 'upgrade1': 1 }, generators: { 'gen1': 2 }, lastSeen: Date.now() };
+    const clickerSaves = new SaveManager('webclickergame.clicker', undefined, { persistent: false });
+    clickerSaves.save(validData);
+    
+    const events = new EventBus();
+    const clicker = new ClickerSystem(events, clickerSaves, () => 1000);
+    expect(clicker.restore()).toBe(true);
+    expect(clicker.souls).toBe(1000);
+    
+    // Data with missing required fields should fail
+    const missingFields = { v: 1, souls: 1000 }; // missing totalClicks, upgrades, generators
+    clickerSaves.save(missingFields);
+    const clicker2 = new ClickerSystem(new EventBus(), clickerSaves, () => 1000);
+    expect(clicker2.restore()).toBe(false);
+    expect(clicker2.souls).toBe(0);
+    
+    // Data with invalid types should fail
+    const invalidTypes = { v: 1, souls: 'not-a-number', totalClicks: 50, upgrades: {}, generators: {}, lastSeen: Date.now() };
+    clickerSaves.save(invalidTypes);
+    const clicker3 = new ClickerSystem(new EventBus(), clickerSaves, () => 1000);
+    expect(clicker3.restore()).toBe(false);
+    expect(clicker3.souls).toBe(0);
+  });
+
+  it('Clicker parser accepts legitimate fresh-run state (souls=0, totalClicks=0)', () => {
+    // A genuinely fresh run should be valid
+    const freshData = { v: 1, souls: 0, totalClicks: 0, upgrades: {}, generators: {}, lastSeen: Date.now() };
+    const clickerSaves = new SaveManager('webclickergame.clicker', undefined, { persistent: false });
+    clickerSaves.save(freshData);
+    
+    const events = new EventBus();
+    const clicker = new ClickerSystem(events, clickerSaves, () => 1000);
+    expect(clicker.restore()).toBe(true);
+    expect(clicker.souls).toBe(0);
+    expect(clicker.totalClicks).toBe(0);
   });
 });

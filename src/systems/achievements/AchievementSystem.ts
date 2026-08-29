@@ -81,11 +81,12 @@ export class AchievementSystem {
     });
   }
 
-  restore(): void {
+  restore(): boolean {
     const parsed = parseSavedState(this.saves.load());
     if (parsed !== null) this.state = parsed;
     this.lastSignature = this.viewSignature();
     this.publish();
+    return parsed !== null;
   }
 
   /**

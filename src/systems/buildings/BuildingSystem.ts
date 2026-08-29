@@ -137,10 +137,11 @@ export class BuildingSystem {
     return true;
   }
 
-  restore(): void {
+  restore(): boolean {
     const parsed = parseSavedState(this.saves.load());
     if (parsed !== null) this.state = parsed;
     this.publish();
+    return parsed !== null;
   }
 
   /** Prestige support: the Crypt is run-scoped and wipes with everything else. */

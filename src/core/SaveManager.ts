@@ -62,7 +62,10 @@ export class SaveManager {
   }
 
   save(data: unknown): boolean {
-    if (persistenceSuspended) return false;
+    if (persistenceSuspended) {
+      console.log('[SAVE] SaveManager.save - suspended, skipping', { key: this.storageKey });
+      return false;
+    }
     if (!this.persistent) {
       this.memoryData = cloneSaveData(data);
       this.onMemorySave?.();
@@ -70,6 +73,7 @@ export class SaveManager {
     }
     try {
       localStorage.setItem(this.storageKey, JSON.stringify(data));
+      console.log('[SAVE] SaveManager.save - persistent write', { key: this.storageKey });
       return true;
     } catch (error) {
       // Persisted-progress loss is always critical: never swallow silently.

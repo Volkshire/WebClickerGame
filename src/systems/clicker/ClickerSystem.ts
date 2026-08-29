@@ -305,14 +305,22 @@ export class ClickerSystem {
 
   private save(): void {
     this.secondsSincePassiveSave = 0;
-    this.saves.save({
+    const payload = {
       v: SAVE_SCHEMA_VERSION,
       souls: this.state.souls,
       totalClicks: this.state.totalClicks,
       upgrades: { ...this.state.upgrades },
       generators: { ...this.state.generators },
       lastSeen: this.now(),
+    };
+    console.log('[SAVE] ClickerSystem.save', {
+      souls: payload.souls,
+      totalClicks: payload.totalClicks,
+      upgradesCount: Object.keys(payload.upgrades).length,
+      generatorsCount: Object.keys(payload.generators).length,
+      lastSeen: payload.lastSeen,
     });
+    this.saves.save(payload);
   }
 
   private publish(): void {

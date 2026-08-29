@@ -9,6 +9,8 @@ interface HeartbeatBlob {
 const BEAT_INTERVAL_MS = 3000;
 /** Heartbeats older than this belong to dead sessions and are ignored. */
 const FOREIGN_FRESH_WINDOW_MS = 15000;
+/** sessionStorage key for our session ID across reloads. */
+const SESSION_STORAGE_KEY = 'webclickergame.session.id';
 
 /**
  * Best-effort detection of multiple live game instances sharing one origin's
@@ -27,12 +29,52 @@ export class SessionGuard {
     /** Optional UI hook: fires once per detected foreign live session. */
     private readonly onForeignDetected?: (foreignId: string) => void,
   ) {
-    this.sessionId = createSessionId();
+    this.sessionId = this.resolveSessionId();
+  }
+
+  private resolveSessionId(): string {
+    let previousId: string | null = null;
+    try {
+      previousId = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    } catch {
+      // sessionStorage unavailable (private mode, etc.) — treat as new session
+    }
+
+    if (previousId !== null) {
+      const parsed = parseHeartbeat(this.saves.load());
+      if (
+        parsed !== null &&
+        parsed.id === previousId &&
+        this.now() - parsed.stamp < FOREIGN_FRESH_WINDOW_MS
+      ) {
+        console.log('[SAVE] SessionGuard - reusing session ID from sessionStorage (reload detected)', {
+          sessionId: previousId,
+        });
+        return previousId;
+      }
+    }
+
+    const newId = createSessionId();
+    try {
+      sessionStorage.setItem(SESSION_STORAGE_KEY, newId);
+    } catch {
+      // sessionStorage unavailable
+    }
+    console.log('[SAVE] SessionGuard - new session ID generated', { sessionId: newId });
+    return newId;
   }
 
   /** Boot-time check; returns true when a live foreign session was detected. */
   checkOnBoot(): boolean {
     const parsed = parseHeartbeat(this.saves.load());
+    console.log('[SAVE] SessionGuard.checkOnBoot', {
+      sessionId: this.sessionId,
+      foundHeartbeat: parsed !== null,
+      heartbeatId: parsed?.id,
+      isOwnSession: parsed?.id === this.sessionId,
+      ageMs: parsed ? this.now() - parsed.stamp : null,
+      isFresh: parsed ? this.now() - parsed.stamp < FOREIGN_FRESH_WINDOW_MS : null,
+    });
     if (
       parsed !== null &&
       parsed.id !== this.sessionId &&
@@ -51,6 +93,15 @@ export class SessionGuard {
     this.lastBeatAtMs = nowMs;
 
     const parsed = parseHeartbeat(this.saves.load());
+    console.log('[SAVE] SessionGuard.beat', {
+      sessionId: this.sessionId,
+      foundHeartbeat: parsed !== null,
+      heartbeatId: parsed?.id,
+      isOwnSession: parsed?.id === this.sessionId,
+      ageMs: parsed ? nowMs - parsed.stamp : null,
+      isFresh: parsed ? nowMs - parsed.stamp < FOREIGN_FRESH_WINDOW_MS : null,
+    });
+
     if (
       parsed !== null &&
       parsed.id !== this.sessionId &&

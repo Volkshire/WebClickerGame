@@ -92,10 +92,11 @@ export class NecromancySystem {
     return true;
   }
 
-  restore(): void {
+  restore(): boolean {
     const parsed = parseSavedState(this.saves.load());
     if (parsed !== null) this.state = parsed;
     this.publish();
+    return parsed !== null;
   }
 
   /** Prestige support: research is run-scoped like every Crypt building. */

@@ -192,13 +192,14 @@ export class PrestigeSystem {
     return { ok: true };
   }
 
-  restore(): void {
+  restore(): boolean {
     const parsed = parseSavedState(this.saves.load());
     if (parsed !== null) {
       this.state = parsed.state;
       this.pendingRewards = new Map(Object.entries(parsed.pendingRewards));
     }
     this.publish();
+    return parsed !== null;
   }
 
   /** Called by the wiring layer when the world frontier reaches its end. */

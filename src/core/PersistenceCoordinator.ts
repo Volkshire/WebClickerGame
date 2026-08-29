@@ -75,13 +75,18 @@ export class PersistenceCoordinator {
   }
 
   save(): boolean {
+    console.log('[SAVE] PersistenceCoordinator.save - collecting profile');
     return this.profileSave.save(this.collect());
   }
 
   collect(): CanonicalProfile {
     const data = {} as Record<ProfileSection, unknown>;
     for (const key of LEGACY_PROFILE_KEYS) data[key] = this.slots[key].load();
-    return { app: 'endless-souls', schemaVersion: PROFILE_SCHEMA_VERSION, data };
+    const profile: CanonicalProfile = { app: 'endless-souls', schemaVersion: PROFILE_SCHEMA_VERSION, data };
+    console.log('[SAVE] PersistenceCoordinator.collect', {
+      sections: LEGACY_PROFILE_KEYS.map(k => ({ key: k, hasData: profile.data[k] !== null })),
+    });
+    return profile;
   }
 
   restore(): RestoreProfileResult {
@@ -104,8 +109,13 @@ export class PersistenceCoordinator {
   }
 
   migrateLegacy(): boolean {
+    console.log('[SAVE] PersistenceCoordinator.migrateLegacy - starting');
     const saved = this.save();
-    if (saved) this.clearLegacySections();
+    console.log('[SAVE] PersistenceCoordinator.migrateLegacy - canonical save result:', saved);
+    if (saved) {
+      console.log('[SAVE] PersistenceCoordinator.migrateLegacy - clearing legacy sections');
+      this.clearLegacySections();
+    }
     return saved;
   }
 
@@ -179,12 +189,52 @@ export class PersistenceCoordinator {
   }
 
   private clearLegacySections(): void {
+    console.log('[SAVE] PersistenceCoordinator.clearLegacySections - removing legacy keys');
     for (const key of LEGACY_PROFILE_KEYS) {
       try {
+        const hadKey = localStorage.getItem(key) !== null;
         localStorage.removeItem(key);
-      } catch {
-        // A retained legacy key is harmless because canonical data wins.
+        const removed = localStorage.getItem(key) === null;
+        console.log('[SAVE] PersistenceCoordinator.clearLegacySections', { key, hadKey, removed });
+      } catch (error) {
+        console.error('[SAVE] PersistenceCoordinator.clearLegacySections - FAILED', { key, error });
       }
+    }
+  }
+
+  /** Verify all legacy keys are cleared after migration. */
+  verifyLegacyCleared(): { cleared: boolean; remaining: string[] } {
+    const remaining: string[] = [];
+    for (const key of LEGACY_PROFILE_KEYS) {
+      try {
+        if (localStorage.getItem(key) !== null) {
+          remaining.push(key);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const cleared = remaining.length === 0;
+    if (!cleared) {
+      console.warn('[SAVE] PersistenceCoordinator.verifyLegacyCleared - legacy keys still present', { remaining });
+    } else {
+      console.log('[SAVE] PersistenceCoordinator.verifyLegacyCleared - all legacy keys cleared');
+    }
+    return { cleared, remaining };
+  }
+
+  /** Check for legacy keys when canonical profile exists (should not happen post-migration). */
+  checkLegacyKeysWithCanonical(): void {
+    try {
+      const canonical = localStorage.getItem(PROFILE_STORAGE_KEY);
+      if (canonical !== null) {
+        const legacyPresent = LEGACY_PROFILE_KEYS.filter(key => localStorage.getItem(key) !== null);
+        if (legacyPresent.length > 0) {
+          console.warn('[SAVE] PersistenceCoordinator.checkLegacyKeysWithCanonical - legacy keys exist alongside canonical profile', { legacyKeys: legacyPresent });
+        }
+      }
+    } catch {
+      // ignore
     }
   }
 }
