@@ -328,21 +328,21 @@ legionView.onRaise((unitId, amount) => {
   }
 });
 
-/** Raises exactly one unit while affordable; returns false when not possible. */
-function raiseOnce(unitId: string): boolean {
+/** Raises up to `count` units of `unitId` in a single batch; returns number actually raised. */
+function raiseBatch(unitId: string, count: number): number {
   const def = getUnitDef(unitId);
-  if (def === null || !legion.isTierUnlocked(unitId)) return false;
-  if (payableCount(def, currentStocks(), prestige.effects.recruitCostMultiplier) < 1) return false;
+  if (def === null || !legion.isTierUnlocked(unitId) || count <= 0) return 0;
+  const affordable = payableCount(def, currentStocks(), prestige.effects.recruitCostMultiplier);
+  const toRaise = Math.min(count, affordable);
+  if (toRaise <= 0) return 0;
 
-  debitUnitCosts(def, 1);
-  legion.addUnits(unitId, 1);
-  return true;
+  debitUnitCosts(def, toRaise);
+  legion.addUnits(unitId, toRaise);
+  return toRaise;
 }
 
 buildings.setAutoRaise((count) => {
-  for (let raised = 0; raised < count; raised += 1) {
-    if (!raiseOnce('wraith')) break;
-  }
+  raiseBatch('wraith', count);
 });
 
 // Ossuary Auto-Raiser: raises Skeletons as production output — no per-unit
