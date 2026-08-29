@@ -56,7 +56,7 @@ export const BUILDINGS: readonly BuildingDefinition[] = [
   {
     id: 'auto-raise',
     name: 'Auto-Raise',
-    description: 'Automatically raises Wraiths every 5 seconds.',
+    description: 'Automatically raises Wraiths every 5 seconds. Stops when Souls reach 100 or lower.',
     flavor: 'The graveyard staffs itself these days.',
     maxLevel: 20,
     baseCosts: { souls: 500 },

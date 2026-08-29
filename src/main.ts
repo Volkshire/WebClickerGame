@@ -341,7 +341,12 @@ function raiseBatch(unitId: string, count: number): number {
   return toRaise;
 }
 
+const AUTO_RAISE_SOUL_THRESHOLD = 100;
+
 buildings.setAutoRaise((count) => {
+  // Emergency stop: Auto-Raise pauses when Souls drop to 100 or below.
+  // This prevents runaway spending from draining the player's reserves.
+  if (clicker.souls <= AUTO_RAISE_SOUL_THRESHOLD) return;
   raiseBatch('wraith', count);
 });
 
