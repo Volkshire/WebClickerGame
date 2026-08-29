@@ -55,6 +55,7 @@ export class PersistenceCoordinator {
   }
 
   endBatch(save = true): boolean {
+    console.log('[SAVE] PersistenceCoordinator.endBatch', { save, batchDepth: this.batchDepth, dirty: this.dirty });
     if (this.batchDepth === 0) return false;
     this.batchDepth -= 1;
     if (this.batchDepth > 0) return true;
@@ -75,7 +76,9 @@ export class PersistenceCoordinator {
   }
 
   save(): boolean {
-    console.log('[SAVE] PersistenceCoordinator.save - collecting profile');
+    console.log('[SAVE] PersistenceCoordinator.save - collecting profile', {
+      caller: new Error().stack?.split('\n').slice(1, 4).join(' -> ') ?? 'unknown',
+    });
     return this.profileSave.save(this.collect());
   }
 
@@ -83,9 +86,8 @@ export class PersistenceCoordinator {
     const data = {} as Record<ProfileSection, unknown>;
     for (const key of LEGACY_PROFILE_KEYS) data[key] = this.slots[key].load();
     const profile: CanonicalProfile = { app: 'endless-souls', schemaVersion: PROFILE_SCHEMA_VERSION, data };
-    console.log('[SAVE] PersistenceCoordinator.collect', {
-      sections: LEGACY_PROFILE_KEYS.map(k => ({ key: k, hasData: profile.data[k] !== null })),
-    });
+    const sections = LEGACY_PROFILE_KEYS.map(k => ({ key: k, hasData: profile.data[k] !== null }));
+    console.log('[SAVE] PersistenceCoordinator.collect', { sections });
     return profile;
   }
 

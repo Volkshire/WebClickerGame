@@ -660,3 +660,150 @@ describe('Corrupted-but-valid Clicker data detection', () => {
     expect(clicker.totalClicks).toBe(0);
   });
 });
+
+describe('Delayed Clicker state corruption regression', () => {
+  // Minimal transactors for BuildingSystem and NecromancySystem tests
+  const buildingTransactor = {
+    canAfford: () => true,
+    spend: () => true,
+  };
+  const necromancyTransactor = {
+    canAfford: () => true,
+    spend: () => true,
+  };
+
+  it('valid Clicker state survives multiple passive save intervals without reset', () => {
+    // 1. Create a canonical profile with progressed Clicker state (souls, generators owned)
+    const firstSlots = slots();
+    const firstPersistence = coordinator(firstSlots);
+    const firstEvents = new EventBus();
+
+    const firstClicker = new ClickerSystem(firstEvents, firstSlots['webclickergame.clicker'], () => 1_000_000);
+    const firstLegion = new LegionSystem(firstEvents, firstSlots['webclickergame.legion']);
+    const firstResources = new ResourceSystem(firstEvents, firstSlots['webclickergame.resources']);
+    const firstPrestige = new PrestigeSystem(firstEvents, firstSlots['webclickergame.prestige']);
+    const firstAchievements = new AchievementSystem(firstEvents, firstSlots['webclickergame.achievements']);
+    const firstNecromancy = new NecromancySystem(firstEvents, firstSlots['webclickergame.necromancy'], { transactor: necromancyTransactor });
+    const firstBuildings = new BuildingSystem(firstEvents, firstSlots['webclickergame.buildings'], { transactor: buildingTransactor });
+    const firstCombat = new CombatSystem(firstEvents, firstSlots['webclickergame.combat']);
+
+    // Seed Clicker progress: souls + generators (so passive save triggers)
+    firstClicker.restore();
+    firstClicker.grantSouls(5_000_000);
+    firstClicker.buyGenerator('grave-keeper'); // First generator
+    firstClicker.buyGenerator('soul-collector'); // Second generator
+
+    // Seed Legion progress (needed for generator unlock check)
+    firstLegion.restore();
+    firstLegion.checkGeneratorUnlock({ 'soul-siphon': 1 });
+    firstLegion.addUnits('wraith', 100);
+
+    // Seed other systems
+    firstResources.restore(); firstResources.grant('bone', 1_000);
+    firstPrestige.restore(); firstPrestige.setCampaignCompleted(true);
+    firstAchievements.restore();
+    firstNecromancy.restore();
+    firstBuildings.restore();
+    firstCombat.restore();
+
+    expect(firstPersistence.save()).toBe(true);
+
+    const initialSouls = firstClicker.souls;
+    const initialGenerators = { 'grave-keeper': firstClicker.getOwned('grave-keeper'), 'soul-collector': firstClicker.getOwned('soul-collector') };
+    expect(initialSouls).toBeGreaterThan(0);
+    expect(initialGenerators['grave-keeper']).toBeGreaterThan(0);
+    expect(initialGenerators['soul-collector']).toBeGreaterThan(0);
+
+    // 2. Simulate FULL BOOT: new process, fresh systems, restore through PersistenceCoordinator
+    const restoredSlots = slots();
+    const restoredPersistence = coordinator(restoredSlots);
+    const profileRestore = restoredPersistence.restore();
+    expect(profileRestore.source).toBe('canonical');
+
+    const restoredEvents = new EventBus();
+    const restoredPrestige = new PrestigeSystem(restoredEvents, restoredSlots['webclickergame.prestige']);
+    const restoredAchievements = new AchievementSystem(restoredEvents, restoredSlots['webclickergame.achievements']);
+    const restoredNecromancy = new NecromancySystem(restoredEvents, restoredSlots['webclickergame.necromancy'], { transactor: necromancyTransactor });
+    const restoredLegion = new LegionSystem(restoredEvents, restoredSlots['webclickergame.legion']);
+    const restoredClicker = new ClickerSystem(restoredEvents, restoredSlots['webclickergame.clicker'], () => 1_000_000);
+    const restoredResources = new ResourceSystem(restoredEvents, restoredSlots['webclickergame.resources']);
+    const restoredBuildings = new BuildingSystem(restoredEvents, restoredSlots['webclickergame.buildings'], { transactor: buildingTransactor });
+    const restoredCombat = new CombatSystem(restoredEvents, restoredSlots['webclickergame.combat']);
+
+    // Boot order from main.ts
+    restoredPrestige.restore();
+    restoredAchievements.restore();
+    for (const entry of restoredAchievements.getCompletedPrestigePointRewards()) {
+      restoredPrestige.reportReward(entry.id, entry.amount);
+    }
+    restoredNecromancy.restore();
+    expect(restoredLegion.restore()).toBe(true);
+    expect(restoredClicker.restore()).toBe(true);
+    expect(restoredResources.restore()).toBe(true);
+    restoredBuildings.restore();
+    restoredCombat.restore();
+
+    // Verify initial restore is correct
+    const soulsAfterRestore = restoredClicker.souls;
+    const generatorsAfterRestore = { 'grave-keeper': restoredClicker.getOwned('grave-keeper'), 'soul-collector': restoredClicker.getOwned('soul-collector') };
+    expect(soulsAfterRestore).toBe(initialSouls);
+    expect(generatorsAfterRestore['grave-keeper']).toBe(initialGenerators['grave-keeper']);
+    expect(generatorsAfterRestore['soul-collector']).toBe(initialGenerators['soul-collector']);
+
+    // 3. Simulate game loop advancing time PAST the passive save interval (5 seconds)
+    // Call tick() with enough delta to trigger multiple passive saves
+    const PASSIVE_SAVE_INTERVAL_SECONDS = 5;
+    const TICK_COUNT = 3;
+    const DELTA_PER_TICK = PASSIVE_SAVE_INTERVAL_SECONDS + 1; // 6 seconds each = triggers passive save each time
+
+    for (let i = 0; i < TICK_COUNT; i++) {
+      restoredClicker.tick(DELTA_PER_TICK);
+    }
+
+    // 4. Verify Clicker state is STILL correct after passive saves
+    const soulsAfterTicks = restoredClicker.souls;
+    const generatorsAfterTicks = { 'grave-keeper': restoredClicker.getOwned('grave-keeper'), 'soul-collector': restoredClicker.getOwned('soul-collector') };
+    
+    // Souls should have INCREASED from passive generation, not reset to 0
+    expect(soulsAfterTicks).toBeGreaterThanOrEqual(soulsAfterRestore);
+    expect(generatorsAfterTicks['grave-keeper']).toBe(generatorsAfterRestore['grave-keeper']);
+    expect(generatorsAfterTicks['soul-collector']).toBe(generatorsAfterRestore['soul-collector']);
+
+    // 5. Verify canonical profile is still correct after endBatch
+    restoredPersistence.endBatch(true);
+    const finalProfile = new SaveManager(PROFILE_STORAGE_KEY).load() as { data: Record<string, unknown> };
+    expect(finalProfile.data['webclickergame.clicker']).toMatchObject({
+      souls: expect.any(Number), // Should be >= initial, not 0
+      totalClicks: 0,
+    });
+    const finalClickerData = finalProfile.data['webclickergame.clicker'] as { souls: number; generators: Record<string, number> };
+    expect(finalClickerData.souls).toBeGreaterThanOrEqual(soulsAfterRestore);
+    expect(finalClickerData.generators['grave-keeper']).toBe(initialGenerators['grave-keeper']);
+    expect(finalClickerData.generators['soul-collector']).toBe(initialGenerators['soul-collector']);
+  });
+
+  it('Clicker resetRun() is NOT called during normal boot/restore', () => {
+    // This test ensures no code path accidentally calls resetRun() during boot
+    const firstSlots = slots();
+    const firstPersistence = coordinator(firstSlots);
+    const firstEvents = new EventBus();
+    const firstClicker = new ClickerSystem(firstEvents, firstSlots['webclickergame.clicker'], () => 1_000_000);
+    firstClicker.restore();
+    firstClicker.grantSouls(10_000);
+    expect(firstPersistence.save()).toBe(true);
+
+    const restoredSlots = slots();
+    const restoredPersistence = coordinator(restoredSlots);
+    restoredPersistence.restore();
+    const restoredEvents = new EventBus();
+    const restoredClicker = new ClickerSystem(restoredEvents, restoredSlots['webclickergame.clicker'], () => 1_000_000);
+    expect(restoredClicker.restore()).toBe(true);
+    expect(restoredClicker.souls).toBe(10_000);
+
+    // Simulate boot completion (endBatch)
+    restoredPersistence.endBatch(true);
+
+    // Souls should still be 10,000, not reset to 0
+    expect(restoredClicker.souls).toBe(10_000);
+  });
+});

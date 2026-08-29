@@ -238,6 +238,7 @@ export class ClickerSystem {
 
   /** Prestige support: wipes souls, upgrades and generators; totalClicks is a lifetime stat. */
   resetRun(): void {
+    console.error('[SAVE] ClickerSystem.resetRun() CALLED - stack:', new Error().stack);
     this.state = {
       souls: 0,
       totalClicks: this.state.totalClicks,
@@ -299,6 +300,13 @@ export class ClickerSystem {
 
     if (this.secondsSincePassiveSave >= PASSIVE_SAVE_INTERVAL_SECONDS) {
       this.secondsSincePassiveSave = 0;
+      console.log('[SAVE] ClickerSystem.tick - passive save trigger', {
+        souls: this.state.souls,
+        totalClicks: this.state.totalClicks,
+        secondsSincePassiveSave: this.secondsSincePassiveSave,
+        soulsPerSecond: rate,
+        pendingSouls: this.pendingSouls,
+      });
       this.save();
     }
   }
@@ -319,6 +327,7 @@ export class ClickerSystem {
       upgradesCount: Object.keys(payload.upgrades).length,
       generatorsCount: Object.keys(payload.generators).length,
       lastSeen: payload.lastSeen,
+      caller: new Error().stack?.split('\n').slice(1, 4).join(' -> ') ?? 'unknown',
     });
     this.saves.save(payload);
   }
