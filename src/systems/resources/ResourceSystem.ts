@@ -7,8 +7,14 @@ import type { ResourceAmounts, ResourceChangedPayload, ResourceId } from './type
 
 const INITIAL_AMOUNTS: ResourceAmounts = { bone: 0, flesh: 0, iron: 0 };
 
+/**
+ * Parser-side gate for stored resource amounts. Mirrors the Clicker
+ * fix: accepts any finite, non-negative Number. Internal `grant` /
+ * `spend` inputs retain the strict isSafeInteger gate because the
+ * UI never supplies them above safe-integer magnitudes.
+ */
 function isValidCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function parseSavedAmounts(raw: unknown): ResourceAmounts | null {

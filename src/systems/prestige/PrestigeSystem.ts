@@ -13,8 +13,15 @@ import type {
   PrestigeState,
 } from './types';
 
+/**
+ * Parser-side gate for stored Prestige counters. Mirrors the Clicker
+ * fix: accepts any finite, non-negative Number so a save whose
+ * Prestige points have grown past Number.MAX_SAFE_INTEGER can still
+ * restore. The `reportReward` API keeps the strict isSafeInteger gate
+ * (line 150) because its inputs are crafted values, never magnitudes.
+ */
 function isValidCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 /** Strict map of non-negative safe integers (shop purchases, pending rewards). */

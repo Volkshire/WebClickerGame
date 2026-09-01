@@ -60,8 +60,15 @@ function freshState(): LegionState {
   return { unlocked: false, units: {}, unlockedUnits: {} };
 }
 
+/**
+ * Parser-side gate for stored unit counts. Mirrors the Clicker fix:
+ * accepts any finite, non-negative Number so saves that have grown
+ * past Number.MAX_SAFE_INTEGER can still restore instead of falling
+ * back to defaults. Internal API inputs (raise counts, deploy counts)
+ * keep the strict isSafeInteger gate in main.ts / deployment.ts.
+ */
 function isValidCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function parseOptionalCount(raw: unknown): number {

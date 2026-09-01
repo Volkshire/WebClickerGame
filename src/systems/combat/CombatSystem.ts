@@ -92,7 +92,11 @@ function isValidGroups(raw: unknown): raw is DeployedGroup[] {
       group.unitId !== '' &&
       typeof group.name === 'string' &&
       group.name !== '' &&
-      Number.isSafeInteger(group.count) &&
+      // group.count can exceed MAX_SAFE_INTEGER for late-game armies;
+      // accept any finite, positive Number so a saved battle can resume
+      // instead of being silently discarded.
+      typeof group.count === 'number' &&
+      Number.isFinite(group.count) &&
       group.count > 0 &&
       typeof group.combatPowerEach === 'number' &&
       Number.isFinite(group.combatPowerEach) &&

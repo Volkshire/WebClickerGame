@@ -42,8 +42,21 @@ const INITIAL_STATE: ClickerState = {
   lastSeen: null,
 };
 
+/**
+ * Parser-side gate for stored Souls / totals. The previous
+ * `Number.isSafeInteger` check rejected any Souls value above
+ * Number.MAX_SAFE_INTEGER (~9.007Qa) and silently fell back to
+ * the default state, wiping progress for late-game players.
+ *
+ * Accepts any finite, non-negative Number: the precision lost
+ * past MAX_SAFE_INTEGER is the same precision the player's
+ * arithmetic is already subject to (this is an emergency
+ * compatibility unblock, not a long-term numeric solution).
+ * Gameplay APIs (spend amounts, raise counts) keep the strict
+ * isSafeInteger gate because they should never receive huge values.
+ */
 function isValidCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function parseCountMap(raw: unknown): Record<string, number> | null {
